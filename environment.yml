@@ -1,0 +1,20 @@
+name: stand_mapping
+
+channels:
+  - conda-forge
+
+dependencies:
+  - descartes
+  - geopandas
+  - ipywidgets
+  - jupyterlab
+  - matplotlib
+  - numpy
+  - pandas
+  - python
+  - rasterio
+  - scikit-image
+  - scikit-learn
+  - seaborn
+
+prefix: /home/ddiaz/anaconda3/stand_mapping
