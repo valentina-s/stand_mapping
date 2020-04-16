@@ -15,7 +15,7 @@ A similar example to this workflow can be found [here](http://emapr.ceoas.oregon
 2. TAOs/superpixels are merged into larger regions through on or more steps. Several options for clustering may be considered, including graph-based methods in `skimage` such as [hierarchical merging](https://scikit-image.org/docs/dev/api/skimage.future.graph.html#skimage.future.graph.merge_hierarchical), [Felzenswalb's segmentation](https://scikit-image.org/docs/dev/api/skimage.segmentation.html#skimage.segmentation.felzenszwalb), and [normalized cuts](https://scikit-image.org/docs/dev/api/skimage.future.graph.html#skimage.future.graph.ncut) as well as a variety of clustering approaches provided by [`sklearn`](https://scikit-learn.org/stable/modules/clustering.html#clustering).
 
 ### Option B. Single-Stage: Neural Network Implementation of Mask-RCNN  
-Mask R-CNN is a region-based convolutional neural network designed for object instance segmentation ([He et al., 2018](https://arxiv.org/pdf/1703.06870)). Open-source implementations are available in [PyTorch] (https://github.com/facebookresearch/detectron2) and [Keras + TensorFlow](https://github.com/matterport/Mask_RCNN), among other packages.
+Mask R-CNN is a region-based convolutional neural network designed for object instance segmentation ([He et al., 2018](https://arxiv.org/pdf/1703.06870)). Open-source implementations are available in [PyTorch](https://github.com/facebookresearch/detectron2) and [Keras + TensorFlow](https://github.com/matterport/Mask_RCNN), among other packages.
 
 ![](https://www.learnopencv.com/wp-content/uploads/2019/06/mask-rcnn-1024x477.jpg)
 
@@ -23,7 +23,11 @@ Mask-RCNN embeds object detection, semantic segmentation, and instance segmentat
 
 * Input data is formatted as a multi-channel array (e.g., 1024 rows and 1024 columns with red, green, blue, near-infrared, canopy height, etc...). These data may be stored natively in geo-referenced formats (e.g., GeoTiff, but will likely be preprocessed and fed to the network as non-spatial images/arrays).
 
-* The targets/labels the model learns from are rasterized forest stand delineations. An example stand delineation from the Oregon Garden is shown here. ![](https://oregonforests.org/sites/default/files/inline-images/OregonGarden_StandMap_Public.jpg)  Stand delineations will be converted from vector to raster format such that each polygon in an image "chip" is assigned a unique integer.
+* The targets/labels the model learns from are rasterized forest stand delineations. An example stand delineation from the Oregon Garden is shown here.  
+
+![](https://oregonforests.org/sites/default/files/inline-images/OregonGarden_StandMap_Public.jpg)  
+
+Stand delineations will be converted from vector to raster format such that each polygon in an image "chip" is assigned a unique integer.
 
 ## Data Provenance, Storage, and Processing
 ### Data Sources
@@ -46,10 +50,10 @@ To adjust raw stand delineations, a series of pre-processing steps may be taken,
 ### Preparing Training Chips
 Depending on the formats required to quickly feed image data to the Mask-RCNN model, geospatial data commonly in raster formats as GeoTiff may be processed into non-spatial formats such as png or other format if necessary. Raw aerial and lidar imagery that is often 1m or higher resolution may be resampled to coarser resolution to allow for a balance between image size/computational cost and geographic extent. The `Rasterio` and `GDAL` packages will be employed to produce these images. For each image/lidar chip, a corresponding target/label chip will be prepared using `Rasterio` and/or `GDAL` to convert the stand polygons from vector format (e.g., shapefile) into raster/image format ([example code using `GeoPandas` and `Rasterio` here](https://gis.stackexchange.com/a/151861/122267)).
 
-## Executing Segmentation
+### Executing Segmentation
 The two-staged approach ("option A") will be implemented using `skimage` and can probably be implemented using the JupyterHub provided for this class. Fitting the Mask-RCNN model, however, will require a much larger computational and memory capacity, including important gains in processing efficiency with access to a GPU. We will attempt to implement the Mask-RCNN workflow using Google Colab.  
 
-## Evaluating Performance
+### Evaluating (and Improving?) Performance
 The performance of automated stand delineation approaches will be quantified using a scoring function such as Intersection over Union (IoU) compared to ground-truth stand delineations. If time allows, we may explore options to tune hyperparameters of models used in the two-stage segmentation workflow using `sklearn` cross-validation or `skopt` Bayesian search routines.
 
 The automated stand delineations will also be shown to colleagues in the UW School of Environmental and Forest Sciences for qualitative characterizations and preference ratings.
