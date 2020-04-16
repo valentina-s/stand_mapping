@@ -7,15 +7,15 @@ There are two general approaches we will pursue for automating the delineation o
 Both workflows will ingest a multiband array or stack of rasters including aerial imagery (e.g., NAIP) and one or more lidar-derived raster layers (e.g., canopy height model). They will output a raster layer where each pixel is assigned to a distinct contiguous region (e.g., a "forest stand"). This is commonly known as *instance segmentation* in computer vision applications.
 
 
-###Option A. Two-Stage: Superpixel & Merge
+### Option A. Two-Stage: Superpixel & Merge
 A similar example to this workflow can be found [here](http://emapr.ceoas.oregonstate.edu/pages/education/how_to/image_segmentation/how_to_spatial_segmentation.html).
 
-1. Forested scenes are initially segmented using [watershed segmentation] (https://scikit-image.org/docs/dev/api/skimage.segmentation.html#skimage.segmentation.watershed) of a canopy height raster, producing superpixels representing Tree-Associated Objects (TAOs).  Each pixel within a TAO/superpixel is assigned the average value of pixels within that TAO/superpixel. TAOs/superpixels now appear internally homogeneous.
+1. Forested scenes are initially segmented using [watershed segmentation](https://scikit-image.org/docs/dev/api/skimage.segmentation.html#skimage.segmentation.watershed) of a canopy height raster, producing superpixels representing Tree-Associated Objects (TAOs).  Each pixel within a TAO/superpixel is assigned the average value of pixels within that TAO/superpixel. TAOs/superpixels now appear internally homogeneous.
 
-2. TAOs/superpixels are merged into larger regions through on or more steps. Several options for clustering may be considered, including graph-based methods in `skimage` such as [hierarchical merging] (https://scikit-image.org/docs/dev/api/skimage.future.graph.html#skimage.future.graph.merge_hierarchical), [Felzenswalb's segmentation](https://scikit-image.org/docs/dev/api/skimage.segmentation.html#skimage.segmentation.felzenszwalb), and [normalized cuts](https://scikit-image.org/docs/dev/api/skimage.future.graph.html#skimage.future.graph.ncut) as well as a variety of clustering approaches provided by [`sklearn`](https://scikit-learn.org/stable/modules/clustering.html#clustering).
+2. TAOs/superpixels are merged into larger regions through on or more steps. Several options for clustering may be considered, including graph-based methods in `skimage` such as [hierarchical merging](https://scikit-image.org/docs/dev/api/skimage.future.graph.html#skimage.future.graph.merge_hierarchical), [Felzenswalb's segmentation](https://scikit-image.org/docs/dev/api/skimage.segmentation.html#skimage.segmentation.felzenszwalb), and [normalized cuts](https://scikit-image.org/docs/dev/api/skimage.future.graph.html#skimage.future.graph.ncut) as well as a variety of clustering approaches provided by [`sklearn`](https://scikit-learn.org/stable/modules/clustering.html#clustering).
 
-###Option B. Single-Stage: Neural Network Implementation of Mask-RCNN  
-Mask R-CNN is a region-based convolutional neural network designed for object instance segmentation ([He et al., 2018](https://arxiv.org/pdf/1703.06870)). Open-source implementations are available in [PyTorch] (https://github.com/facebookresearch/detectron2) and [ Keras + TensorFlow](https://github.com/matterport/Mask_RCNN), among other packages.
+### Option B. Single-Stage: Neural Network Implementation of Mask-RCNN  
+Mask R-CNN is a region-based convolutional neural network designed for object instance segmentation ([He et al., 2018](https://arxiv.org/pdf/1703.06870)). Open-source implementations are available in [PyTorch] (https://github.com/facebookresearch/detectron2) and [Keras + TensorFlow](https://github.com/matterport/Mask_RCNN), among other packages.
 
 ![](https://www.learnopencv.com/wp-content/uploads/2019/06/mask-rcnn-1024x477.jpg)
 
@@ -41,7 +41,7 @@ Many stand delineations contain artifacts of regulatory constraints and human er
 
 To adjust raw stand delineations, a series of pre-processing steps may be taken, including:
 * Eroding or inwardly-buffering stand boundaries followed by [random walker segmentation](https://scikit-image.org/docs/dev/auto_examples/segmentation/plot_random_walker_segmentation.html) where the core areas of stands are used as seeds for edges between stands to be redrawn more precisely.
-* Calculating gradients and utilizing edge-detection on the imagery + lidar followed by a method such as [active contours/snakes] (https://scikit-image.org/docs/dev/api/skimage.segmentation.html?highlight=image%20segmentation#skimage.segmentation.morphological_chan_vese) that adjust initial stand boundaries to better snap to edges between forest types.
+* Calculating gradients and utilizing edge-detection on the imagery + lidar followed by a method such as [active contours/snakes](https://scikit-image.org/docs/dev/api/skimage.segmentation.html?highlight=image%20segmentation#skimage.segmentation.morphological_chan_vese) that adjust initial stand boundaries to better snap to edges between forest types.
 
 ### Preparing Training Chips
 Depending on the formats required to quickly feed image data to the Mask-RCNN model, geospatial data commonly in raster formats as GeoTiff may be processed into non-spatial formats such as png or other format if necessary. Raw aerial and lidar imagery that is often 1m or higher resolution may be resampled to coarser resolution to allow for a balance between image size/computational cost and geographic extent. The `Rasterio` and `GDAL` packages will be employed to produce these images. For each image/lidar chip, a corresponding target/label chip will be prepared using `Rasterio` and/or `GDAL` to convert the stand polygons from vector format (e.g., shapefile) into raster/image format ([example code using `GeoPandas` and `Rasterio` here](https://gis.stackexchange.com/a/151861/122267)).
