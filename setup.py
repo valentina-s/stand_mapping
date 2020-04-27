@@ -1,10 +1,10 @@
 from setuptools import find_packages, setup
 
 setup(
-    name='src',
+    name='stand_mapping',
     packages=find_packages(),
     version='0.1.0',
-    description='Automating forest stand delineation using Computer Vision approaches',
+    description='Tools for delineating forest conditions from imagery',
     author='David Diaz',
     license='BSD-3',
 )
