@@ -2,6 +2,7 @@ name: stand_mapping
 
 channels:
   - conda-forge
+  - pytorch
 
 dependencies:
   - descartes
@@ -12,9 +13,14 @@ dependencies:
   - numpy
   - pandas
   - python
+  - python-dotenv
+  - pytorch
   - rasterio
   - scikit-image
   - scikit-learn
   - seaborn
+  - sphinx
+  - sphinx_rtd_theme
+  - torchvision
 
 prefix: /home/ddiaz/anaconda3/stand_mapping
