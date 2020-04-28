@@ -11,7 +11,7 @@ def get_cover_from_extent(bbox, epsg, api_key,
     v2 API within a user-defined bounding box.
 
     Parameters
-    ---------
+    ----------
     bbox : 4-tuple or list
       coordinates of x_min, y_min, x_max, and y_max for bounding box of tile
     epsg : int
