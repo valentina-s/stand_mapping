@@ -4,7 +4,7 @@ Making a Stand
 Applying computer vision approaches to instance segmentation to delineate forest
 stands and patches using aerial/satellite imagery and lidar data.
 
-Documentation is hosted at (Read the Docs)[https://stand-mapping.readthedocs.io/en/latest/].
+Documentation is hosted at [Read the Docs](https://stand-mapping.readthedocs.io/en/latest/).
 
 Project Organization
 ------------
