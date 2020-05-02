@@ -45,6 +45,7 @@ Contents
 
    getting-started
    benchmarking-dataset
+   dependencies
 
 
 Indices and tables
