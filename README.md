@@ -10,14 +10,14 @@ Project Organization
 ------------
 
     ├── LICENSE
-    ├── README.md          <- You're reading it.
+    ├── README.md          <- You're reading it
     ├── data
-    │   ├── external       <- Data from third party sources.
-    │   ├── raw            <- Data ready for processing (e.g., unzipped).
-    │   ├── interim        <- Intermediate data that has been transformed.
-    │   └── processed      <- The final, canonical data sets for modeling.
+    │   ├── external       <- Data from third party sources
+    │   ├── raw            <- Data ready for processing (e.g., unzipped)
+    │   ├── interim        <- Intermediate data that has been transformed
+    │   └── processed      <- The final, canonical data sets for modeling
     │
-    ├── docs               <- A default Sphinx project; see sphinx-doc.org for details
+    ├── docs               <- Documentation using Sphinx and Read the Docs
     │
     ├── models             <- Trained and serialized models, model predictions, or model summaries
     │
@@ -33,20 +33,15 @@ Project Organization
     ├── environment.yml    <- Packages needed to reproduce the computing environment using
     │                         conda package manager
     │
-    ├── setup.py           <- makes project pip installable (pip install -e .) so src can be imported
-    ├── src                <- Source code for use in this project.
-        ├── __init__.py    <- Makes src a Python module
+    ├── setup.py           <- makes project pip installable (pip install -e .) so stand_mapping can be imported
+    └── stand_mapping      <- Source code for use in this project
+        ├── __init__.py    <- Makes stand_mapping a Python module
         │
         ├── data           <- Scripts to download or generate data
-        │   └── make_dataset.py
         │
         ├── features       <- Scripts to turn raw data into features for modeling
-        │   └── build_features.py
         │
         ├── models         <- Scripts to train models and then use trained models to make
-        │   │                 predictions
-        │   ├── predict_model.py
-        │   └── train_model.py
+        │                     predictions
         │
         └── visualization  <- Scripts to create exploratory and results oriented visualizations
-            └── visualize.py
