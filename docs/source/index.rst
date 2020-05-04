@@ -5,7 +5,8 @@ distinct forest conditions by applying computer vision approaches on various
 types of imagery. It is built around the core use case of designing
 reproducible workflows for delineating forest stands using aerial imagery and
 other raster information (e.g., lidar-derived canopy height, biomass estimates,
-etc.).
+etc.). It is intended to produce georeferenced polygons or rasters with each
+distinct stand indicated with a different integer label.
 
 The term "stand" is generally used to refer a forested area ranging in size
 from a few acres to a few hundred acres that can be distinguished from
@@ -31,7 +32,7 @@ We are currently working on two main segmentation approaches:
   Mask-RCNN_, adapted from the `PyTorch implementation`_
 
 A significant part of this effort involves the construction of a
-:doc:`bencmarking dataset<benchmarking-dataset>` that includes several layers
+:doc:`benchmarking dataset<benchmarking-dataset>` that includes several layers
 of features as well as the targets which include bounding boxes and masks
 distinguishing major land cover types (water, field, forest, impervious) and
 the distinct instances of each cover type.

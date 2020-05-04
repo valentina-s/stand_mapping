@@ -38,9 +38,7 @@ sys.path.insert(0, os.path.abspath('../../stand_mapping'))
 extensions = ['sphinx.ext.autodoc',
     'sphinx.ext.doctest',
     'sphinx.ext.coverage',
-    'sphinx.ext.mathjax',
     'sphinx.ext.viewcode',
-    'sphinx.ext.githubpages',
     'sphinx.ext.napoleon']
 
 source_parsers = {
