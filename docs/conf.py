@@ -26,6 +26,9 @@ sys.path.insert(0, os.path.abspath('../stand_mapping'))
 sys.path.insert(0, os.path.abspath('../../stand_mapping'))
 sys.path.insert(0, os.path.abspath('../../../stand_mapping'))
 
+autodoc_mock_imports = ['numpy', 'skimage', 'dotenv', 'shapely', 'geopandas',
+                        'requests', 'io', 'base64', 'imageio']
+
 
 # -- General configuration ------------------------------------------------
 
