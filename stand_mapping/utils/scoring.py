@@ -31,11 +31,38 @@ import numpy as np
 #  Bounding Boxes
 ############################################################
 
+def single_to_multichannel_mask(mask_img):
+    """From a single array with instances indicated by distinct non-zero
+    integer masks, returns a stack of arrays with each object shown in a
+    single array.
+
+    Parameters
+    ----------
+    mask_img : array, shape (width, height)
+      array with each instance to be detected indicated by unique non-zero
+      integer mask.
+      
+
+
+    Returns
+    -------
+    masks : array, shape (width, height, instances)
+      boolean arrays with mask of each instance indicated as True.
+    """
+    # filter out background pixels (value of 0)
+    obj_ids = np.unique(mask_img[mask_img > 0])
+    masks = np.dstack([np.array(mask_img == id) for id in obj_ids])
+
+    return masks
 
 def extract_bboxes(mask):
     """Compute bounding boxes from masks.
+    Parameters
+    --------------
     mask: [height, width, num_instances]. Mask pixels are either 1 or 0.
-    Returns: bbox array [num_instances, (y1, x1, y2, x2)].
+    Return
+    -----------------------------
+    bbox array [num_instances, (y1, x1, y2, x2)].
     """
     boxes = np.zeros([mask.shape[-1], 4], dtype=np.int32)
     for i in range(mask.shape[-1]):
@@ -59,12 +86,20 @@ def extract_bboxes(mask):
 
 def compute_iou(box, boxes, box_area, boxes_area):
     """Calculates IoU of the given box with the array of the given boxes.
+    Parameters
+    ----------
     box: 1D vector [y1, x1, y2, x2]
     boxes: [boxes_count, (y1, x1, y2, x2)]
     box_area: float. the area of 'box'
     boxes_area: array of length boxes_count.
+
     Note: the areas are passed in rather than calculated here for
     efficiency. Calculate once in the caller to avoid duplicate work.
+    Return
+    -----------
+    The iou, Intersection over Union. I
+    In practice, this number is calculate by
+    Area of the intersection / Area of the union
     """
     # Calculate intersection areas
     y1 = np.maximum(box[0], boxes[:, 0])
@@ -81,6 +116,15 @@ def compute_overlaps(boxes1, boxes2):
     """Computes IoU overlaps between two sets of boxes.
     boxes1, boxes2: [N, (y1, x1, y2, x2)].
     For better performance, pass the largest set first and the smaller second.
+
+    parameters
+    ------------
+    Boxes1: is the the surrounding box around target object1
+    Boxes2: is the the surrounding box around target object2
+
+    Return
+    ----------
+    the overlap array, shape (instances,)
     """
     # Areas of anchors and GT boxes
     area1 = (boxes1[:, 2] - boxes1[:, 0]) * (boxes1[:, 3] - boxes1[:, 1])
@@ -95,12 +139,25 @@ def compute_overlaps(boxes1, boxes2):
     return overlaps
 
 
-def compute_overlaps_masks(masks1, masks2):
+def compute_overlaps_masks2(masks1, masks2, threshold=None):
     """Computes IoU overlaps between two sets of masks.
-    masks1, masks2: [Height, Width, instances]
+
+    Parameters
+    ----------
+    masks1, masks2 : arrays, shape (height, width, instances)
+      ...
+    threshold : numeric (optional)
+      value between 0 and 1, IoU threshold below which overlap scores are
+      ignored (treated as zero); defaults to no threshold, returning all IoU
+      overlaps including masks that are completely non-overlapping.
+
+    Returns
+    -------
+    overlaps : array, shape (instances,)
+      ....
     """
 
-    # If either set of masks is empty return empty result
+    # if either set of masks is empty return empty result
     if masks1.shape[-1] == 0 or masks2.shape[-1] == 0:
         return np.zeros((masks1.shape[-1], masks2.shape[-1]))
     # flatten masks and compute their areas
@@ -114,14 +171,22 @@ def compute_overlaps_masks(masks1, masks2):
     union = area1[:, None] + area2[None, :] - intersections
     overlaps = intersections / union
 
+    if threshold:
+        overlaps = np.where(overlaps > threshold, overlaps, 0)
+
     return overlaps
 
 
 def non_max_suppression(boxes, scores, threshold):
     """Performs non-maximum suppression and returns indices of kept boxes.
+    Parameters
+    ----------
     boxes: [N, (y1, x1, y2, x2)]. Notice that (y2, x2) lays outside the box.
     scores: 1-D array of box scores.
     threshold: Float. IoU threshold to use for filtering.
+    Return
+    ----------
+    the top box and the index and pixel in it
     """
     assert boxes.shape[0] > 0
     if boxes.dtype.kind != "f":
@@ -156,8 +221,13 @@ def non_max_suppression(boxes, scores, threshold):
 
 def apply_box_deltas(boxes, deltas):
     """Applies the given deltas to the given boxes.
+    Parameters:
+    ----------
     boxes: [N, (y1, x1, y2, x2)]. Note that (y2, x2) is outside the box.
     deltas: [N, (dy, dx, log(dh), log(dw))]
+    Returns
+    ----------
+    The stack consisted of boxes above
     """
     boxes = boxes.astype(np.float32)
     # Convert to y, x, h, w
@@ -180,7 +250,12 @@ def apply_box_deltas(boxes, deltas):
 
 def box_refinement_graph(box, gt_box):
     """Compute refinement needed to transform box to gt_box.
+    Parameters
+    ----------
     box and gt_box are [N, (y1, x1, y2, x2)]
+    Returns
+    ----------
+    the stack made from box and get_box
     """
     box = tf.cast(box, tf.float32)
     gt_box = tf.cast(gt_box, tf.float32)
@@ -206,8 +281,12 @@ def box_refinement_graph(box, gt_box):
 
 def box_refinement(box, gt_box):
     """Compute refinement needed to transform box to gt_box.
+    Parameters:
     box and gt_box are [N, (y1, x1, y2, x2)]. (y2, x2) is
     assumed to be outside the box.
+    return
+    -----------
+    the refined box which is a stack made of abover parameters
     """
     box = box.astype(np.float32)
     gt_box = gt_box.astype(np.float32)
@@ -238,7 +317,12 @@ def box_refinement(box, gt_box):
 def trim_zeros(x):
     """It's common to have tensors larger than the available data and
     pad with zeros. This function removes rows that are all zeros.
+    Parameters:
+    -------------
     x: [rows, columns].
+    Return
+    -------------
+    modified x 
     """
     assert len(x.shape) == 2
     return x[~np.all(x == 0, axis=1)]
@@ -363,6 +447,7 @@ def compute_ap_range(gt_box,
                      iou_thresholds=None,
                      verbose=1):
     """Compute AP over a range or IoU thresholds. Default range is 0.5-0.95."""
+    
     # Default is 0.5 to 0.95 with increments of 0.05
     iou_thresholds = iou_thresholds or np.arange(0.5, 1.0, 0.05)
 
@@ -386,8 +471,15 @@ def compute_ap_range(gt_box,
 def compute_recall(pred_boxes, gt_boxes, iou):
     """Compute the recall at the given IoU threshold. It's an indication
     of how many GT boxes were found by the given prediction boxes.
+    Parameters
+    -----------------
     pred_boxes: [N, (y1, x1, y2, x2)] in image coordinates
     gt_boxes: [N, (y1, x1, y2, x2)] in image coordinates
+    iou: Intersection over Union
+    Return
+    ------------------
+    recall: the matched_get_boxes score
+    Positive_ids: the location where iou is greater than 0
     """
     # Measure overlaps
     overlaps = compute_overlaps(pred_boxes, gt_boxes)
