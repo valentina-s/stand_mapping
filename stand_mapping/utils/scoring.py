@@ -123,6 +123,9 @@ def masks_iou(gt_masks, pred_masks):
     union = area1[:, None] + area2[None, :] - intersections
     overlaps = intersections / union
 
+    if threshold:
+        overlaps = np.where(overlaps > threshold, overlaps, 0)
+
     return overlaps
 
 
