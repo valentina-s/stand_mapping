@@ -26,9 +26,17 @@ sys.path.insert(0, os.path.abspath('../stand_mapping'))
 sys.path.insert(0, os.path.abspath('../../stand_mapping'))
 sys.path.insert(0, os.path.abspath('../../../stand_mapping'))
 
-autodoc_mock_imports = ['numpy', 'skimage', 'dotenv', 'shapely', 'geopandas',
-                        'requests', 'io', 'base64', 'imageio']
+# import mock
 
+autodoc_mock_imports = ['numpy', 'skimage', 'dotenv', 'shapely', 'geopandas',
+                        'requests', 'io', 'base64', 'imageio', 'osmnx', 'scipy',
+                        'rasterio',
+                        'skimage.segmentation', 'skimage.color',
+                        'skimage.filters', 'skimage.morphology']
+
+# for mod in ['skimage.segmentation', 'skimage.color', 'skimage.filters',
+#             'skimage.morphology']:
+#     sys.modules[mod] = mock.MagicMock()
 
 # -- General configuration ------------------------------------------------
 

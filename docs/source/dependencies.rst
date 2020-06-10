@@ -1,7 +1,7 @@
 Dependencies
 ============
 
-This project is under active development. Hence, the dependencies may change over time.
+This project is under active development. Dependencies may change over time.
 
 
 Documentation Requirements
@@ -25,10 +25,11 @@ Runtime Requirements
   scikit-image
   scikit-learn
   torchvision
+  osmnx (for fetching data from Open Street Map)
 
 
 Recommended for interactive visualization and development
-  ::
+::
 
   ipywidgets
   jupyterlab
