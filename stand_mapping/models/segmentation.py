@@ -1,6 +1,6 @@
 import numpy as np
-from skimage.segmentation import (slic, quickshift, felzenszwalb, watershed,
-                                  mark_boundaries)
+from skimage.segmentation import slic, quickshift, felzenszwalb, watershed
+from skimage.segmentation import mark_boundaries
 from skimage.color import label2rgb
 
 
