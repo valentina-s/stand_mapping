@@ -19,7 +19,7 @@ def slope_from_dem(dem, res, degrees=False):
     slope : array
       slope of DEM
     """
-    slope = sobel(dem) / (res*3)
+    slope = sobel(dem) / (res*2)
     if degrees:
         slope = np.rad2deg(np.arctan(slope))
     return slope
