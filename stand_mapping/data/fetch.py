@@ -16,6 +16,8 @@ from skimage.transform import resize
 from scipy.ndimage.filters import convolve
 from rasterio.transform import from_bounds
 from rasterio.features import rasterize
+from multiprocessing.pool import ThreadPool
+from functools import partial
 
 def landcover_from_ai4earth(bbox,
                             epsg,
@@ -281,7 +283,7 @@ def tpi_from_tnm(bbox, irad, orad, dem_resolution, tpi_resolution=30,
     tpi : array
       TPI image as array
     """
-    tpi_bbox = np.asanyarray(bbox)
+    tpi_bbox = np.array(bbox)
     tpi_bbox[0:2] = tpi_bbox[0:2] - orad
     tpi_bbox[2:4] = tpi_bbox[2:4] + orad
     k_orad = orad // tpi_resolution
@@ -622,10 +624,30 @@ def multi_to_single_linestring(geom):
     return ls
 
 
-from multiprocessing.pool import ThreadPool
-from functools import partial
-
 def quad_naip_from_tnm(bbox, res, bboxSR=4326, imageSR=4326, **kwargs):
+    """Retrieves NAIP imagery from The National Map by breaking bbox into four
+    quadrants and requesting four images and returning them stitched together.
+
+    This can be used, for example, to retrieve images that are high resolution
+    and which would be too large to retrieve in a single request to the web
+    service.
+
+    Parameters
+    ----------
+    bbox : list-like
+      list of bounding box coordinates (minx, miny, maxx, maxy)
+    res : numeric
+      spatial resolution to use for returned DEM (grid cell size)
+    bboxSR : integer
+      spatial reference for bounding box, such as an EPSG code (e.g., 4326)
+    imageSR : integer
+      spatial reference for bounding box, such as an EPSG code (e.g., 4326)
+
+    Returns
+    -------
+    img : array
+      NAIP image as a 3-band or 4-band array
+    """
     xmin, ymin, xmax, ymax = bbox
     nw_bbox = [xmin, (ymin + ymax) / 2, (xmin + xmax)/2, ymax]
     ne_bbox = [(xmin + xmax)/2, (ymin + ymax)/2, xmax, ymax]
@@ -634,14 +656,41 @@ def quad_naip_from_tnm(bbox, res, bboxSR=4326, imageSR=4326, **kwargs):
 
     bboxes = [nw_bbox, ne_bbox, sw_bbox, se_bbox]
 
-    get_naip = partial(naip_from_tnm, res=res, bboxSR=bboxSR, imageSR=imageSR, **kwargs)
+    get_naip = partial(naip_from_tnm, res=res,
+                       bboxSR=bboxSR, imageSR=imageSR,
+                       **kwargs)
+
     with ThreadPool(4) as p:
         naip_images = p.map(get_naip, bboxes)
     nw, ne, sw, se = naip_images
+    img = np.vstack([np.hstack([nw, ne]), np.hstack([sw, se])])
 
-    return np.vstack([np.hstack([nw, ne]), np.hstack([sw, se])])
+    return img
 
 def quad_dem_from_tnm(bbox, res, bboxSR=4326, imageSR=4326, **kwargs):
+    """Retrieves NAIP imagery from The National Map by breaking bbox into four
+    quadrants and requesting four images and returning them stitched together.
+
+    This can be used, for example, to retrieve images that are high resolution
+    and which would be too large to retrieve in a single request to the web
+    service.
+
+    Parameters
+    ----------
+    bbox : list-like
+      list of bounding box coordinates (minx, miny, maxx, maxy)
+    res : numeric
+      spatial resolution to use for returned DEM (grid cell size)
+    bboxSR : integer
+      spatial reference for bounding box, such as an EPSG code (e.g., 4326)
+    imageSR : integer
+      spatial reference for bounding box, such as an EPSG code (e.g., 4326)
+
+    Returns
+    -------
+    dem : array
+      Diital Elevation Model
+    """
     xmin, ymin, xmax, ymax = bbox
     nw_bbox = [xmin, (ymin + ymax) / 2, (xmin + xmax)/2, ymax]
     ne_bbox = [(xmin + xmax)/2, (ymin + ymax)/2, xmax, ymax]
@@ -650,9 +699,13 @@ def quad_dem_from_tnm(bbox, res, bboxSR=4326, imageSR=4326, **kwargs):
 
     bboxes = [nw_bbox, ne_bbox, sw_bbox, se_bbox]
 
-    get_dem = partial(dem_from_tnm, res=res, bboxSR=bboxSR, imageSR=imageSR, **kwargs)
+    get_dem = partial(dem_from_tnm, res=res,
+                      bboxSR=bboxSR, imageSR=imageSR,
+                      **kwargs)
+
     with ThreadPool(4) as p:
         dems = p.map(get_dem, bboxes)
     nw, ne, sw, se = dems
+    dem = np.vstack([np.hstack([nw, ne]), np.hstack([sw, se])])
 
-    return np.vstack([np.hstack([nw, ne]), np.hstack([sw, se])])
+    return dem

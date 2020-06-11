@@ -124,16 +124,3 @@ LANDFORM_NAMES = {
     9: 'midslope ridges, small hills in plains',
     10: 'mountain tops, high ridges'
     }
-
-
-# indices = np.indices(dem.shape)
-# indices = np.stack([indices[1,:,:], indices[0,:,:]])
-# CS = ax.contour((trf*indices)[0], (trf*indices)[1], dem_ft,
-#                 colors='k', alpha=1.0,
-#                 levels=np.arange(dem_ft.min().round(-10)-10, dem_ft.max()+5, 100),
-#                 linewidths=0.25)
-#
-# CS = ax.contour((trf*indices)[0], (trf*indices)[1], dem_ft,
-#                 colors='k', alpha=0.5,
-#                 levels=np.arange(dem_ft.min().round(-10)-10, dem_ft.max()+5, 25),
-#                 linewidths=0.25)

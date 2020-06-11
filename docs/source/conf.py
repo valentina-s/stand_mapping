@@ -30,8 +30,8 @@ sys.path.insert(0, os.path.abspath('../../../stand_mapping'))
 autodoc_mock_imports = ['numpy', 'skimage', 'dotenv', 'shapely', 'geopandas',
                         'requests', 'io', 'base64', 'imageio', 'osmnx',
                         'scipy', 'rasterio', 'skimage.segmentation',
-                        'skimage.color', 'skimage.filters',
-                        'skimage.morphology']
+                        'skimage.color', 'skimage.filters', 'matplotlib',
+                        'skimage.morphology', 'affine']
 
 
 # -- General configuration ------------------------------------------------
