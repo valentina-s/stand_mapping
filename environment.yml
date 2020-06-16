@@ -19,6 +19,7 @@ dependencies:
   - rasterio
   - scikit-image
   - scikit-learn
+  - scikit-optimize
   - seaborn
   - sphinx
   - sphinx_rtd_theme
