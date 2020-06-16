@@ -16,8 +16,9 @@ from skimage.transform import resize
 from scipy.ndimage.filters import convolve
 from rasterio.transform import from_bounds
 from rasterio.features import rasterize
-from multiprocessing.pool import ThreadPool
-from functools import partial
+from shapely.errors import TopologicalError
+from .util import multi_to_single_linestring
+
 
 def landcover_from_ai4earth(bbox,
                             epsg,
@@ -87,7 +88,7 @@ def landcover_from_ai4earth(bbox,
         return hard_cover
     elif prediction_type == 'soft':
         return soft_cover
-    elif prediciton_type == 'both':
+    elif prediction_type == 'both':
         return hard_cover, soft_cover
     else:
         raise ValueError(
@@ -497,23 +498,122 @@ def water_bodies_from_dnr(layer_num, bbox, bbox_epsg=None,
         return gdf
 
 
+def parcels_from_dnr(bbox, bbox_epsg=None, raster_resolution=None):
+    """
+    Returns tax lot boundaries as features from the Washington DNR web service.
+
+    Parameters
+    ----------
+    bbox : list-like
+      list of bounding box coordinates (minx, miny, maxx, maxy).
+    bbox_epsg : int
+      EPSG code for the Coordinate Reference System defining bbox coordinates
+    raster_resolution : numeric
+      if provided, the results will be returned as a raster with grid cell size
+
+    Returns
+    -------
+    gdf : GeoDataFrame
+      features in vector format
+    raster : array
+      features rasterized into an integer array with 0s as background values
+      and 1s wherever features occured; only returned if `raster_resolution` is
+      specified
+
+    """
+    BASEURL = ''.join(
+        ['https://services.arcgis.com/jsIt88o09Q0r1j8h/arcgis/rest/services/',
+         'Current_Parcels_2020/FeatureServer/0/query?']
+        )
+    params = {
+        'where':None,
+        'objectIds': None,
+        'time': None,
+        'geometry': ','.join([str(x) for x in bbox]),
+        'geometryType': 'esriGeometryEnvelope',
+        'inSR': bbox_epsg,
+        'spatialRel': 'esriSpatialRelEnvelopeIntersects',
+        'resultType': 'none',
+        'distance': 0.0,
+        'units': 'esriSRUnit_Meter',
+        'returnGeodetic': 'false',
+        'outFields': '*',
+        'returnGeometry': 'true',
+        'returnCentroid': 'false',
+        'featureEncoding': 'esriDefault',
+        'multipatchOption': 'xyFootprint',
+        'maxAllowableOffset': None,
+        'geometryPrecision': None,
+        'outSR': bbox_epsg,
+        'datumTransformation': None,
+        'applyVCSProjection': 'false',
+        'returnIdsOnly': 'false',
+        'returnUniqueIdsOnly': 'false',
+        'returnCountOnly': 'false',
+        'returnExtentOnly': 'false',
+        'returnQueryGeometry': 'false',
+        'returnDistinctValues': 'false',
+        'cacheHint': 'false',
+        'orderByFields': None,
+        'groupByFieldsForStatistics': None,
+        'outStatistics': None,
+        'having': None,
+        'resultOffset': None,
+        'resultRecordCount': None,
+        'returnZ': 'false',
+        'returnM': 'false',
+        'returnExceededLimitFeatures': 'true',
+        'quantizationParameters': None,
+        'sqlFormat': 'none',
+        'f': 'pgeojson',
+        'token': None,
+    }
+
+    r = requests.get(BASEURL, params=params)
+    gdf = gpd.GeoDataFrame.from_features(r.json(), crs=bbox_epsg)
+    try:
+        gdf = gpd.clip(gdf, box(*bbox))
+    except TopologicalError:
+        try:
+            gdf = gpd.clip(gdf.buffer(0), box(*bbox))
+        except:
+            raise
+
+    if raster_resolution:
+        width = int(abs(bbox[2] - bbox[0]) // raster_resolution)
+        height = int(abs(bbox[3] - bbox[1]) // raster_resolution)
+        transform = from_bounds(*bbox, width, height)
+        raster = rasterize(gdf.geometry,
+                           out_shape=(height, width),
+                           transform=transform)
+        return raster
+
+    else:
+        return gdf
+
+
 def nhd_from_tnm(nhd_layer, bbox, bbox_epsg, raster_resolution=None):
     """Returns features from the National Hydrography Dataset Plus High
     Resolution web service from The National Map.
 
     Available layers are:
-    0: NHDPlusSink
-    1: NHDPoint
-    2: NetworkNHDFlowline
-    3: NonNetworkNHDFlowline
-    4: FlowDirection
-    5: NHDPlusWall
-    6: NHDPlusBurnLineEvent
-    7: NHDLine
-    8: NHDArea
-    9: NHDWaterbody
-    10: NHDPlusCatchment
-    11: WBDHU12
+    
+    =========  ======================
+    NHD Layer  Description
+    =========  ======================
+    0          NHDPlusSink
+    1          NHDPoint
+    2          NetworkNHDFlowline
+    3          NonNetworkNHDFlowline
+    4          FlowDirection
+    5          NHDPlusWall
+    6          NHDPlusBurnLineEvent
+    7          NHDLine
+    8          NHDArea
+    9          NHDWaterbody
+    10         NHDPlusCatchment
+    11         WBDHU12
+    =========  ======================
 
     Parameters
     ----------
@@ -553,8 +653,8 @@ def nhd_from_tnm(nhd_layer, bbox, bbox_epsg, raster_resolution=None):
         orderByFields=None,
         groupByFieldsForStatistics=None,
         outStatistics=None,
-        returnZ='true',
-        returnM='true',
+        returnZ='false',
+        returnM='false',
         gdbVersion=None,
         historicMoment=None,
         returnDistinctValues='false',
@@ -579,6 +679,110 @@ def nhd_from_tnm(nhd_layer, bbox, bbox_epsg, raster_resolution=None):
             f['geometry'].update(
                 {'coordinates':[c[0:2] for c in f['geometry']['coordinates']]})
         gdf = gdf = gpd.GeoDataFrame.from_features(js)
+
+    if len(gdf) > 0:
+        gdf = gpd.clip(gdf, box(*bbox))
+
+    if raster_resolution:
+        width = int(abs(bbox[2] - bbox[0]) // raster_resolution)
+        height = int(abs(bbox[3] - bbox[1]) // raster_resolution)
+        transform = from_bounds(*bbox, width, height)
+        if len(gdf) > 0:
+            raster = rasterize(gdf.geometry,
+                               out_shape=(height, width),
+                               transform=transform)
+        else:
+            raster = np.zeros((height, width), dtype=int)
+        return raster
+
+    else:
+        return gdf
+
+
+def watersheds_from_tnm(huc_level, bbox, bbox_epsg, raster_resolution=None):
+    """Returns features for watershed boundaries at the geographic extent
+    specified by the user from The National Map web service.
+
+    Available Hydrologic Unit Codes (`huc_level`) are translated to the
+    following feature services:
+
+    =========  ============  ==========
+    HUC Level  Description   Feature ID
+    =========  ============  ==========
+    2          Region            1
+    4          Subregion         2
+    6          Basin             3
+    8          Subbasin          4
+    10         Watershed         5
+    12         Subwatershed      6
+    14         --                7
+    =========  ============  ==========
+
+    Parameters
+    ----------
+    huc_level : int
+       the number of digits for the Hydrologic Unit Code, higher numbers
+       correspond to smaller regional extents (more detailed delineation of
+       watersheds). Must be one of {2, 4, 6, 8, 10, 12, 14}
+    bbox : list-like
+      list of bounding box coordinates (minx, miny, maxx, maxy).
+    bbox_epsg : integer
+      spatial reference for bounding box, such as an EPSG code (e.g., 4326)
+    raster_resolution : numeric
+      causes features to be returned in raster (rather than vector) format,
+      with spatial resolution defined by this parameter.
+    """
+    feature_ids = {2: 1, 4: 2, 6: 3, 8: 4, 10: 5, 12: 6, 14:7}
+    keys = feature_ids.keys()
+    if huc_level not in keys:
+        raise ValueError(f'huc_level not recognized, must be one of {keys}')
+
+    feat_id = feature_ids[huc_level]
+    BASEURL = ''.join(
+        ['https://hydro.nationalmap.gov/arcgis/rest/services/wbd/',
+         'MapServer/', str(feat_id), '/query?'])
+
+    params = dict(
+        where=None,
+        text=None,
+        objectIds=None,
+        time=None,
+        geometry=','.join([str(x) for x in bbox]),
+        geometryType='esriGeometryEnvelope',
+        inSR=bbox_epsg,
+        spatialRel='esriSpatialRelIntersects',
+        relationParam=None,
+        outFields=None,
+        returnGeometry='true',
+        returnTrueCurves='false',
+        maxAllowableOffset=None,
+        geometryPrecision=None,
+        outSR=bbox_epsg,
+        having=None,
+        returnIdsOnly='false',
+        returnCountOnly='false',
+        orderByFields=None,
+        groupByFieldsForStatistics=None,
+        outStatistics=None,
+        returnZ='false',
+        returnM='false',
+        gdbVersion=None,
+        historicMoment=None,
+        returnDistinctValues='false',
+        resultOffset=None,
+        resultRecordCount=None,
+        queryByDistance=None,
+        returnExtentOnly='false',
+        datumTransformation=None,
+        parameterValues=None,
+        rangeValues=None,
+        quantizationParameters=None,
+        featureEncoding='esriDefault',
+        f='geojson'
+        )
+
+    r = requests.get(BASEURL, params=params)
+    gdf = gpd.GeoDataFrame.from_features(r.json(), crs=bbox_epsg)
 
     if len(gdf) > 0:
         gdf = gpd.clip(gdf, box(*bbox))
@@ -681,115 +885,3 @@ def buildings_from_microsoft(bbox, bbox_epsg, raster_resolution=None):
 
     else:
         return gdf
-
-
-def multi_to_single_linestring(geom):
-    """Converts a MultiLineString geometry into a single LineString
-
-    Parameters
-    ----------
-    geom : LineString or MultiLineString
-      a LineString or MultiLineString geometry object
-
-    Returns
-    -------
-    ls : LineString
-      LineString based on connecting lines within MultiLineString in the same
-      order they are originally read.
-    """
-    if type(geom) == MultiLineString:
-        coords = [list(line.coords) for line in geom]
-        ls = LineString([x for sublist in coords for x in sublist])
-    elif type(geom) == LineString:
-        ls = geom
-    else:
-        raise TypeError
-
-    return ls
-
-
-def quad_naip_from_tnm(bbox, res, bboxSR=4326, imageSR=4326, **kwargs):
-    """Retrieves NAIP imagery from The National Map by breaking bbox into four
-    quadrants and requesting four images and returning them stitched together.
-
-    This can be used, for example, to retrieve images that are high resolution
-    and which would be too large to retrieve in a single request to the web
-    service.
-
-    Parameters
-    ----------
-    bbox : list-like
-      list of bounding box coordinates (minx, miny, maxx, maxy)
-    res : numeric
-      spatial resolution to use for returned DEM (grid cell size)
-    bboxSR : integer
-      spatial reference for bounding box, such as an EPSG code (e.g., 4326)
-    imageSR : integer
-      spatial reference for bounding box, such as an EPSG code (e.g., 4326)
-
-    Returns
-    -------
-    img : array
-      NAIP image as a 3-band or 4-band array
-    """
-    xmin, ymin, xmax, ymax = bbox
-    nw_bbox = [xmin, (ymin + ymax) / 2, (xmin + xmax)/2, ymax]
-    ne_bbox = [(xmin + xmax)/2, (ymin + ymax)/2, xmax, ymax]
-    sw_bbox = [xmin, ymin, (xmin + xmax)/2, (ymin + ymax)/2]
-    se_bbox = [(xmin + xmax)/2, ymin, xmax, (ymin + ymax)/2]
-
-    bboxes = [nw_bbox, ne_bbox, sw_bbox, se_bbox]
-
-    get_naip = partial(naip_from_tnm, res=res,
-                       bboxSR=bboxSR, imageSR=imageSR,
-                       **kwargs)
-
-    with ThreadPool(4) as p:
-        naip_images = p.map(get_naip, bboxes)
-    nw, ne, sw, se = naip_images
-    img = np.vstack([np.hstack([nw, ne]), np.hstack([sw, se])])
-
-    return img
-
-def quad_dem_from_tnm(bbox, res, bboxSR=4326, imageSR=4326, **kwargs):
-    """Retrieves NAIP imagery from The National Map by breaking bbox into four
-    quadrants and requesting four images and returning them stitched together.
-
-    This can be used, for example, to retrieve images that are high resolution
-    and which would be too large to retrieve in a single request to the web
-    service.
-
-    Parameters
-    ----------
-    bbox : list-like
-      list of bounding box coordinates (minx, miny, maxx, maxy)
-    res : numeric
-      spatial resolution to use for returned DEM (grid cell size)
-    bboxSR : integer
-      spatial reference for bounding box, such as an EPSG code (e.g., 4326)
-    imageSR : integer
-      spatial reference for bounding box, such as an EPSG code (e.g., 4326)
-
-    Returns
-    -------
-    dem : array
-      Diital Elevation Model
-    """
-    xmin, ymin, xmax, ymax = bbox
-    nw_bbox = [xmin, (ymin + ymax) / 2, (xmin + xmax)/2, ymax]
-    ne_bbox = [(xmin + xmax)/2, (ymin + ymax)/2, xmax, ymax]
-    sw_bbox = [xmin, ymin, (xmin + xmax)/2, (ymin + ymax)/2]
-    se_bbox = [(xmin + xmax)/2, ymin, xmax, (ymin + ymax)/2]
-
-    bboxes = [nw_bbox, ne_bbox, sw_bbox, se_bbox]
-
-    get_dem = partial(dem_from_tnm, res=res,
-                      bboxSR=bboxSR, imageSR=imageSR,
-                      **kwargs)
-
-    with ThreadPool(4) as p:
-        dems = p.map(get_dem, bboxes)
-    nw, ne, sw, se = dems
-    dem = np.vstack([np.hstack([nw, ne]), np.hstack([sw, se])])
-
-    return dem
