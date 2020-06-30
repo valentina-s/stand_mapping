@@ -1,7 +1,5 @@
 import numpy as np
 from skimage.filters import sobel
-from multiprocessing.pool import ThreadPool
-from functools import partial
 
 
 def slope_from_dem(dem, res, degrees=False):

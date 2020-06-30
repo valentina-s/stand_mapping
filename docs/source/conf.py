@@ -19,20 +19,29 @@
 #
 import os
 import sys
-sys.path.insert(0, os.path.abspath('.'))
-sys.path.insert(0, os.path.abspath('..'))
-sys.path.insert(0, os.path.abspath('../..'))
-sys.path.insert(0, os.path.abspath('../stand_mapping'))
-sys.path.insert(0, os.path.abspath('../../stand_mapping'))
 sys.path.insert(0, os.path.abspath('../../../stand_mapping'))
 
-
-autodoc_mock_imports = ['numpy', 'skimage', 'dotenv', 'shapely', 'geopandas',
-                        'requests', 'io', 'base64', 'imageio', 'osmnx',
-                        'scipy', 'rasterio', 'skimage.segmentation',
-                        'skimage.color', 'skimage.filters', 'matplotlib',
-                        'skimage.morphology', 'affine']
-
+autodoc_mock_imports = [
+    'affine',
+    'base64',
+    'dotenv',
+    'geopandas',
+    'imageio',
+    'io',
+    'matplotlib',
+    'numpy',
+    'osmnx',
+    'pyproj',
+    'rasterio',
+    'requests',
+    'scipy',
+    'shapely',
+    # 'skimage.color',
+    # 'skimage.filters',
+    # 'skimage.morphology',
+    # 'skimage.segmentation',
+    'skimage',
+]
 
 # -- General configuration ------------------------------------------------
 
@@ -43,15 +52,13 @@ autodoc_mock_imports = ['numpy', 'skimage', 'dotenv', 'shapely', 'geopandas',
 # Add any Sphinx extension module names here, as strings. They can be
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
 # ones.
-extensions = ['sphinx.ext.autodoc',
-    'sphinx.ext.doctest',
-    'sphinx.ext.coverage',
-    'sphinx.ext.mathjax',
-    'sphinx.ext.viewcode',
-    'sphinx.ext.napoleon']
+extensions = [
+    'sphinx.ext.autodoc', 'sphinx.ext.doctest', 'sphinx.ext.coverage',
+    'sphinx.ext.mathjax', 'sphinx.ext.viewcode', 'sphinx.ext.napoleon'
+]
 
 source_parsers = {
-   '.md': 'recommonmark.parser.CommonMarkParser',
+    '.md': 'recommonmark.parser.CommonMarkParser',
 }
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']
@@ -97,7 +104,6 @@ pygments_style = 'sphinx'
 # If true, `todo` and `todoList` produce output, else they produce nothing.
 todo_include_todos = False
 
-
 # -- Options for HTML output ----------------------------------------------
 
 # The theme to use for HTML and HTML Help pages.  See the documentation for
@@ -128,12 +134,10 @@ html_sidebars = {
     ]
 }
 
-
 # -- Options for HTMLHelp output ------------------------------------------
 
 # Output file base name for HTML help builder.
 htmlhelp_basename = 'StandMappingdoc'
-
 
 # -- Options for LaTeX output ---------------------------------------------
 
@@ -163,16 +167,12 @@ latex_documents = [
      'David Diaz', 'manual'),
 ]
 
-
 # -- Options for manual page output ---------------------------------------
 
 # One entry per manual page. List of tuples
 # (source start file, name, description, authors, manual section).
-man_pages = [
-    (master_doc, 'standmapping', 'Stand Mapping Documentation',
-     [author], 1)
-]
-
+man_pages = [(master_doc, 'standmapping', 'Stand Mapping Documentation',
+              [author], 1)]
 
 # -- Options for Texinfo output -------------------------------------------
 
@@ -180,7 +180,6 @@ man_pages = [
 # (source start file, target name, title, author,
 #  dir menu entry, description, category)
 texinfo_documents = [
-    (master_doc, 'StandMapping', 'Stand Mapping Documentation',
-     author, 'StandMapping', 'One line description of project.',
-     'Miscellaneous'),
+    (master_doc, 'StandMapping', 'Stand Mapping Documentation', author,
+     'StandMapping', 'One line description of project.', 'Miscellaneous'),
 ]

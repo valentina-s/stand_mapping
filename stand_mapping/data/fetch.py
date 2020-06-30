@@ -2,25 +2,36 @@
 Functions that retrieve images and features from public web services.
 """
 
-import requests
-import io
 import base64
-from imageio import imread
+import io
 import numpy as np
-import geopandas as gpd
-import osmnx as ox
-from shapely.geometry import box, LineString, MultiLineString
-from skimage.morphology import disk
-from skimage.util import apply_parallel
-from skimage.transform import resize
-from scipy.ndimage.filters import convolve
-from rasterio.transform import from_bounds
+import requests
+import warnings
+from bs4 import BeautifulSoup
+from functools import partial
+from multiprocessing.pool import ThreadPool
+
+from pyproj.crs.crs import CRS
+from rasterio import transform, windows
 from rasterio.features import rasterize
 from shapely.errors import TopologicalError
+from shapely.geometry import box, LineString, MultiLineString
+import geopandas as gpd
+import osmnx as ox
+
+from imageio import imread
+from scipy.ndimage.filters import convolve
+from scipy.ndimage.morphology import distance_transform_edt as edt
+from skimage.morphology import disk
+from skimage.transform import resize
+from skimage.util import apply_parallel
+
 from .util import multi_to_single_linestring
 
 
-def landcover_from_ai4earth(bbox, inSR, api_key,
+def landcover_from_ai4earth(bbox,
+                            inSR,
+                            api_key,
                             weights=[0.25, 0.25, 0.25, 0.25],
                             prediction_type='hard'):
     """
@@ -156,10 +167,10 @@ def naip_from_tnm(bbox, res, inSR=4326, **kwargs):
     img : array
       NAIP image as a 3-band or 4-band array
     """
-    BASE_URL = ''.join(
-        ['https://services.nationalmap.gov/arcgis/rest/services/',
-         'USGSNAIPImagery/ImageServer/exportImage?']
-    )
+    BASE_URL = ''.join([
+        'https://services.nationalmap.gov/arcgis/rest/services/',
+        'USGSNAIPImagery/ImageServer/exportImage?'
+    ])
 
     width = int(abs(bbox[2] - bbox[0]) // res)
     height = int(abs(bbox[3] - bbox[1]) // res)
@@ -213,29 +224,27 @@ def dem_from_tnm(bbox, res, inSR=4326, **kwargs):
     width = int(abs(bbox[2] - bbox[0]) // res)
     height = int(abs(bbox[3] - bbox[1]) // res)
 
-    BASE_URL = ''.join(
-        ['https://elevation.nationalmap.gov/arcgis/rest/',
-         'services/3DEPElevation/ImageServer/exportImage?']
-    )
+    BASE_URL = ''.join([
+        'https://elevation.nationalmap.gov/arcgis/rest/',
+        'services/3DEPElevation/ImageServer/exportImage?'
+    ])
 
-    params = dict(
-        bbox=','.join([str(x) for x in bbox]),
-        bboxSR=inSR,
-        size=f'{width},{height}',
-        imageSR=inSR,
-        time=None,
-        format='tiff',
-        pixelType='F32',
-        noData=None,
-        noDataInterpretation='esriNoDataMatchAny',
-        interpolation='+RSP_BilinearInterpolation',
-        compression=None,
-        compressionQuality=None,
-        bandIds=None,
-        mosaicRule=None,
-        renderingRule=None,
-        f='image'
-    )
+    params = dict(bbox=','.join([str(x) for x in bbox]),
+                  bboxSR=inSR,
+                  size=f'{width},{height}',
+                  imageSR=inSR,
+                  time=None,
+                  format='tiff',
+                  pixelType='F32',
+                  noData=None,
+                  noDataInterpretation='esriNoDataMatchAny',
+                  interpolation='+RSP_BilinearInterpolation',
+                  compression=None,
+                  compressionQuality=None,
+                  bandIds=None,
+                  mosaicRule=None,
+                  renderingRule=None,
+                  f='image')
     for key, value in kwargs.items():
         params.update({key: value})
 
@@ -245,8 +254,13 @@ def dem_from_tnm(bbox, res, inSR=4326, **kwargs):
     return dem
 
 
-def tpi_from_tnm(bbox, irad, orad, dem_resolution, tpi_resolution=30,
-                 parallel=True, norm=True,
+def tpi_from_tnm(bbox,
+                 irad,
+                 orad,
+                 dem_resolution,
+                 tpi_resolution=30,
+                 parallel=True,
+                 norm=True,
                  **kwargs):
     """
     Produces a raster of Topographic Position Index (TPI) by fetching a Digital
@@ -283,7 +297,7 @@ def tpi_from_tnm(bbox, irad, orad, dem_resolution, tpi_resolution=30,
     k_orad = orad // tpi_resolution
     k_irad = irad // tpi_resolution
 
-    kernel = disk(k_orad) - np.pad(disk(k_irad), pad_width=(k_orad-k_irad))
+    kernel = disk(k_orad) - np.pad(disk(k_irad), pad_width=(k_orad - k_irad))
     weights = kernel / kernel.sum()
 
     if dem_resolution != tpi_resolution:
@@ -296,6 +310,7 @@ def tpi_from_tnm(bbox, irad, orad, dem_resolution, tpi_resolution=30,
         dem = tpi_dem
 
     if parallel:
+
         def conv(tpi_dem):
             return convolve(tpi_dem, weights)
 
@@ -312,19 +327,24 @@ def tpi_from_tnm(bbox, irad, orad, dem_resolution, tpi_resolution=30,
             tpi = dem - convolve(tpi_dem, weights)
 
     # trim the padding around the dem used to calculate TPI
-    tpi = tpi[orad//dem_resolution:-orad//dem_resolution,
-              orad//dem_resolution:-orad//dem_resolution]
+    tpi = tpi[orad // dem_resolution:-orad // dem_resolution,
+              orad // dem_resolution:-orad // dem_resolution]
 
     if norm:
         tpi_mean = (tpi_dem - convolved).mean()
         tpi_std = (tpi_dem - convolved).std()
-        tpi = (tpi - tpi_mean)/ tpi_std
+        tpi = (tpi - tpi_mean) / tpi_std
 
     return tpi
 
 
-def ways_from_osm(bbox, crs=None, clip_to_bbox=True, dissolve=False,
-                  polygonize=False, raster_resolution=None, **kwargs):
+def ways_from_osm(bbox,
+                  crs=None,
+                  dissolve=False,
+                  polygonize=False,
+                  raster_resolution=None,
+                  distance_transform=False,
+                  **kwargs):
     """Retrieves ways from Open Street Map clipped to a bounding box.
 
     This utilizes the `OSMnx` package which can execute web queries using the
@@ -347,9 +367,6 @@ def ways_from_osm(bbox, crs=None, clip_to_bbox=True, dissolve=False,
     crs : coordinate reference system
       a string, integer, or class instance which can be interpreted by
       GeoPandas as a Coordinate References System.
-    clip_to_bbox : bool
-      whether to clip returned features to bounding box. ways with nodes that
-      extend beyond the bounding box may be returned if set to False.
     polygonize : bool
       whether to dissolve features by `osmid` and convert into a polygon using
       the convex hull of the features. this may be useful when features
@@ -357,11 +374,18 @@ def ways_from_osm(bbox, crs=None, clip_to_bbox=True, dissolve=False,
       = '["waterway"]'`).
     raster_resolution : numeric
       if provided, the results will be returned as a raster with grid cell size
+    distance_transform : bool
+      if result is rasterized, a value of True will return the distance from
+      the nearest feature rather than the binary raster of features.
 
     Returns
     -------
-    gdf : GeoDataFrame
-      GeoPandas GeoDataFrame containing all ways as vector features
+    clip_gdf : GeoDataFrame
+      features in vector format, clipped to bbox
+    raster : array
+      features rasterized into an integer array with 0s as background values
+      and 1s wherever features occured; only returned if `raster_resolution` is
+      specified
     """
     if crs:
         geom = box(*bbox)
@@ -377,35 +401,57 @@ def ways_from_osm(bbox, crs=None, clip_to_bbox=True, dissolve=False,
     gdf = ox.utils_graph.graph_to_gdfs(g, nodes=False)
 
     if polygonize:
-        gdf = gdf.dissolve(by='osmid', aggfunc=
-                           {'length': 'sum',
-                            'name':'first',
-                            'landuse': 'first'
-                            })
+        gdf = gdf.dissolve(by='osmid',
+                           aggfunc={
+                               'length': 'sum',
+                               'name': 'first',
+                               'landuse': 'first'
+                           })
         gdf['geometry'] = gdf['geometry'].apply(
             lambda x: multi_to_single_linestring(x))
         gdf['geometry'] = gdf['geometry'].convex_hull
 
-    if clip_to_bbox:
-        gdf = gpd.clip(gdf, latlon_bbox)
+    if len(gdf) > 0:
+        clip_gdf = gpd.clip(gdf, latlon_bbox)
 
-    if crs and not raster_resolution:  # reproject if user provided CRS
-        return gdf.to_crs(crs)
+    if crs:
+        clip_gdf = clip_gdf.to_crs(crs)
 
-    if crs and raster_resolution:
+    if raster_resolution:
         width = int(abs(bbox[2] - bbox[0]) // raster_resolution)
         height = int(abs(bbox[3] - bbox[1]) // raster_resolution)
-        transform = from_bounds(*bbox, width, height)
-        raster = rasterize(gdf.to_crs(crs).geometry,
-                           out_shape=(height, width),
-                           transform=transform)
+        gdf_box = [int(x) for x in gdf.unary_union.bounds]
+        gdf_width = int(abs(gdf_box[2] - gdf_box[0]) // raster_resolution)
+        gdf_height = int(abs(gdf_box[3] - gdf_box[1]) // raster_resolution)
+
+        full_transform = transform.from_bounds(*gdf_box, gdf_width, gdf_height)
+        clip_win = windows.from_bounds(*bbox,
+                                       transform=full_transform,
+                                       width=width,
+                                       height=height)
+        if len(gdf) > 0:
+            full_raster = rasterize(gdf.geometry,
+                                    out_shape=(gdf_height, gdf_width),
+                                    transform=full_transform,
+                                    dtype='uint8')
+            clip_ras = full_raster[
+                clip_win.round_offsets().round_lengths().toslices()]
+        if distance_transform:
+            neg = np.logical_not(clip_ras)
+            raster = edt(neg)
+        else:
+            raster = np.zeros((height, width), dtype='uint8')
         return raster
 
-    if not crs and not raster_resolution:
-        return gdf
+    else:
+        return clip_gdf
 
 
-def water_bodies_from_dnr(layer_num, bbox, inSR=4326, raster_resolution=None):
+def water_bodies_from_dnr(layer_num,
+                          bbox,
+                          inSR=4326,
+                          raster_resolution=None,
+                          distance_transform=False):
     """
     Returns hydrographic features from the Washington DNR web service.
 
@@ -419,81 +465,107 @@ def water_bodies_from_dnr(layer_num, bbox, inSR=4326, raster_resolution=None):
       spatial reference for bounding box, such as an EPSG code (e.g., 4326)
     raster_resolution : numeric
       if provided, the results will be returned as a raster with grid cell size
+    distance_transform : bool
+      if result is rasterized, a value of True will return the distance from
+      the nearest feature rather than the binary raster of features.
 
     Returns
     -------
-    gdf : GeoDataFrame
-      features in vector format
+    clip_gdf : GeoDataFrame
+      features in vector format, clipped to bbox
     raster : array
       features rasterized into an integer array with 0s as background values
       and 1s wherever features occured; only returned if `raster_resolution` is
       specified
 
     """
-    BASE_URL = ''.join(
-        ['https://gis.dnr.wa.gov/site2/rest/services/Public_Water/',
-         'WADNR_PUBLIC_Hydrography/MapServer/', str(layer_num), '/query?']
-    )
+    BASE_URL = ''.join([
+        'https://gis.dnr.wa.gov/site2/rest/services/Public_Water/',
+        'WADNR_PUBLIC_Hydrography/MapServer/',
+        str(layer_num), '/query?'
+    ])
 
-    params = dict(
-        text=None,
-        objectIds=None,
-        time=None,
-        geometry=','.join([str(x) for x in bbox]),
-        geometryType='esriGeometryEnvelope',
-        inSR=inSR,
-        spatialRel='esriSpatialRelEnvelopeIntersects',
-        relationParam=None,
-        outFields='*',
-        returnGeometry='true',
-        returnTrueCurves='false',
-        maxAllowableOffset=None,
-        geometryPrecision=None,
-        outSR=inSR,
-        having=None,
-        returnIdsOnly='false',
-        returnCountOnly='false',
-        orderByFields=None,
-        groupByFieldsForStatistics=None,
-        outStatistics=None,
-        returnZ='false',
-        returnM='false',
-        gdbVersion=None,
-        historicMoment=None,
-        returnDistinctValues='false',
-        resultOffset=None,
-        resultRecordCount=None,
-        queryByDistance=None,
-        returnExtentOnly='false',
-        datumTransformation=None,
-        parameterValues=None,
-        rangeValues=None,
-        quantizationParameters=None,
-        f='geojson'
-    )
+    params = dict(text=None,
+                  objectIds=None,
+                  time=None,
+                  geometry=','.join([str(x) for x in bbox]),
+                  geometryType='esriGeometryEnvelope',
+                  inSR=inSR,
+                  spatialRel='esriSpatialRelEnvelopeIntersects',
+                  relationParam=None,
+                  outFields='*',
+                  returnGeometry='true',
+                  returnTrueCurves='false',
+                  maxAllowableOffset=None,
+                  geometryPrecision=None,
+                  outSR=inSR,
+                  having=None,
+                  returnIdsOnly='false',
+                  returnCountOnly='false',
+                  orderByFields=None,
+                  groupByFieldsForStatistics=None,
+                  outStatistics=None,
+                  returnZ='false',
+                  returnM='false',
+                  gdbVersion=None,
+                  historicMoment=None,
+                  returnDistinctValues='false',
+                  resultOffset=None,
+                  resultRecordCount=None,
+                  queryByDistance=None,
+                  returnExtentOnly='false',
+                  datumTransformation=None,
+                  parameterValues=None,
+                  rangeValues=None,
+                  quantizationParameters=None,
+                  f='geojson')
     for key, value in kwargs.items():
         params.update({key: value})
 
     r = requests.get(BASE_URL, params=params)
     gdf = gpd.GeoDataFrame.from_features(r.json(), crs=inSR)
-    gdf = gpd.clip(gdf, box(*bbox))
+
+    if len(gdf) > 0:
+        clip_gdf = gpd.clip(gdf, box(*bbox))
 
     if raster_resolution:
         width = int(abs(bbox[2] - bbox[0]) // raster_resolution)
         height = int(abs(bbox[3] - bbox[1]) // raster_resolution)
-        transform = from_bounds(*bbox, width, height)
-        raster = rasterize(gdf.geometry,
-                           out_shape=(height, width),
-                           transform=transform)
+        gdf_box = [int(x) for x in gdf.unary_union.bounds]
+        gdf_width = int(abs(gdf_box[2] - gdf_box[0]) // raster_resolution)
+        gdf_height = int(abs(gdf_box[3] - gdf_box[1]) // raster_resolution)
+
+        full_transform = transform.from_bounds(*gdf_box, gdf_width, gdf_height)
+        clip_win = windows.from_bounds(*bbox,
+                                       transform=full_transform,
+                                       width=width,
+                                       height=height)
+        if len(gdf) > 0:
+            full_raster = rasterize(gdf.geometry,
+                                    out_shape=(gdf_height, gdf_width),
+                                    transform=full_transform,
+                                    dtype='uint8')
+            clip_ras = full_raster[
+                clip_win.round_offsets().round_lengths().toslices()]
+        if distance_transform:
+            neg = np.logical_not(clip_ras)
+            raster = edt(neg)
+        else:
+            raster = np.zeros((height, width), dtype='uint8')
         return raster
 
     else:
-        return gdf
+        return clip_gdf
 
 
-def parcels_from_dnr(bbox, inSR=4326, raster_resolution=None):
+def parcels_from_wa(bbox,
+                    inSR=4326,
+                    raster_resolution=None,
+                    distance_transform=False,
+                    **kwargs):
     """
-    Returns tax lot boundaries as features from the Washington DNR web service.
+    Returns tax lot boundaries as features from the Washington Geospatial
+    Open Data Portal
 
     Parameters
     ----------
@@ -503,21 +575,24 @@ def parcels_from_dnr(bbox, inSR=4326, raster_resolution=None):
       spatial reference for bounding box, such as an EPSG code (e.g., 4326)
     raster_resolution : numeric
       if provided, the results will be returned as a raster with grid cell size
+    distance_transform : bool
+      if result is rasterized, a value of True will return the distance from
+      the nearest feature rather than the binary raster of features.
 
     Returns
     -------
-    gdf : GeoDataFrame
-      features in vector format
+    clip_gdf : GeoDataFrame
+      features in vector format, clipped to bbox
     raster : array
       features rasterized into an integer array with 0s as background values
       and 1s wherever features occured; only returned if `raster_resolution` is
       specified
 
     """
-    BASE_URL = ''.join(
-        ['https://services.arcgis.com/jsIt88o09Q0r1j8h/arcgis/rest/services/',
-         'Current_Parcels_2020/FeatureServer/0/query?']
-    )
+    BASE_URL = ''.join([
+        'https://services.arcgis.com/jsIt88o09Q0r1j8h/arcgis/rest/services/',
+        'Current_Parcels_2020/FeatureServer/0/query?'
+    ])
 
     params = dict(
         where=None,
@@ -568,27 +643,49 @@ def parcels_from_dnr(bbox, inSR=4326, raster_resolution=None):
     r = requests.get(BASE_URL, params=params)
     gdf = gpd.GeoDataFrame.from_features(r.json(), crs=inSR)
     try:
-        gdf = gpd.clip(gdf, box(*bbox))
+        clip_gdf = gpd.clip(gdf, box(*bbox))
     except TopologicalError:
         try:
-            gdf = gpd.clip(gdf.buffer(0), box(*bbox))
+            clip_gdf = gpd.clip(gdf.buffer(0), box(*bbox))
         except:
             raise
 
     if raster_resolution:
         width = int(abs(bbox[2] - bbox[0]) // raster_resolution)
         height = int(abs(bbox[3] - bbox[1]) // raster_resolution)
-        transform = from_bounds(*bbox, width, height)
-        raster = rasterize(gdf.geometry,
-                           out_shape=(height, width),
-                           transform=transform)
+        gdf_box = [int(x) for x in gdf.unary_union.bounds]
+        gdf_width = int(abs(gdf_box[2] - gdf_box[0]) // raster_resolution)
+        gdf_height = int(abs(gdf_box[3] - gdf_box[1]) // raster_resolution)
+
+        full_transform = transform.from_bounds(*gdf_box, gdf_width, gdf_height)
+        clip_win = windows.from_bounds(*bbox,
+                                       transform=full_transform,
+                                       width=width,
+                                       height=height)
+        if len(gdf) > 0:
+            full_raster = rasterize(gdf.boundary.geometry,
+                                    out_shape=(gdf_height, gdf_width),
+                                    transform=full_transform,
+                                    dtype='uint8')
+            clip_ras = full_raster[
+                clip_win.round_offsets().round_lengths().toslices()]
+        if distance_transform:
+            neg = np.logical_not(clip_ras)
+            raster = edt(neg)
+        else:
+            raster = np.zeros((height, width), dtype='uint8')
         return raster
 
     else:
-        return gdf
+        return clip_gdf
 
 
-def nhd_from_tnm(nhd_layer, bbox, inSR=4326, raster_resolution=None):
+def nhd_from_tnm(nhd_layer,
+                 bbox,
+                 inSR=4326,
+                 raster_resolution=None,
+                 distance_transform=False,
+                 **kwargs):
     """Returns features from the National Hydrography Dataset Plus High
     Resolution web service from The National Map.
 
@@ -622,50 +719,61 @@ def nhd_from_tnm(nhd_layer, bbox, inSR=4326, raster_resolution=None):
     raster_resolution : numeric
       causes features to be returned in raster (rather than vector) format,
       with spatial resolution defined by this parameter.
-    """
-    BASE_URL = ''.join(
-        ['https://hydro.nationalmap.gov/arcgis/rest/services/NHDPlus_HR/',
-         'MapServer/', str(nhd_layer), '/query?']
-    )
+    distance_transform : bool
+      if result is rasterized, a value of True will return the distance from
+      the nearest feature rather than the binary raster of features.
 
-    params = dict(
-        where=None,
-        text=None,
-        objectIds=None,
-        time=None,
-        geometry=','.join([str(x) for x in bbox]),
-        geometryType='esriGeometryEnvelope',
-        inSR=inSR,
-        spatialRel='esriSpatialRelIntersects',
-        relationParam=None,
-        outFields=None,
-        returnGeometry='true',
-        returnTrueCurves='false',
-        maxAllowableOffset=None,
-        geometryPrecision=None,
-        outSR=inSR,
-        having=None,
-        returnIdsOnly='false',
-        returnCountOnly='false',
-        orderByFields=None,
-        groupByFieldsForStatistics=None,
-        outStatistics=None,
-        returnZ='false',
-        returnM='false',
-        gdbVersion=None,
-        historicMoment=None,
-        returnDistinctValues='false',
-        resultOffset=None,
-        resultRecordCount=None,
-        queryByDistance=None,
-        returnExtentOnly='false',
-        datumTransformation=None,
-        parameterValues=None,
-        rangeValues=None,
-        quantizationParameters=None,
-        featureEncoding='esriDefault',
-        f='geojson'
-    )
+    Returns
+    -------
+    clip_gdf : GeoDataFrame
+      features in vector format, clipped to bbox
+    raster : array
+      features rasterized into an integer array with 0s as background values
+      and 1s wherever features occured; only returned if `raster_resolution` is
+      specified
+    """
+    BASE_URL = ''.join([
+        'https://hydro.nationalmap.gov/arcgis/rest/services/NHDPlus_HR/',
+        'MapServer/',
+        str(nhd_layer), '/query?'
+    ])
+
+    params = dict(where=None,
+                  text=None,
+                  objectIds=None,
+                  time=None,
+                  geometry=','.join([str(x) for x in bbox]),
+                  geometryType='esriGeometryEnvelope',
+                  inSR=inSR,
+                  spatialRel='esriSpatialRelIntersects',
+                  relationParam=None,
+                  outFields=None,
+                  returnGeometry='true',
+                  returnTrueCurves='false',
+                  maxAllowableOffset=None,
+                  geometryPrecision=None,
+                  outSR=inSR,
+                  having=None,
+                  returnIdsOnly='false',
+                  returnCountOnly='false',
+                  orderByFields=None,
+                  groupByFieldsForStatistics=None,
+                  outStatistics=None,
+                  returnZ='false',
+                  returnM='false',
+                  gdbVersion=None,
+                  historicMoment=None,
+                  returnDistinctValues='false',
+                  resultOffset=None,
+                  resultRecordCount=None,
+                  queryByDistance=None,
+                  returnExtentOnly='false',
+                  datumTransformation=None,
+                  parameterValues=None,
+                  rangeValues=None,
+                  quantizationParameters=None,
+                  featureEncoding='esriDefault',
+                  f='geojson')
     for key, value in kwargs.items():
         params.update({key: value})
 
@@ -678,30 +786,49 @@ def nhd_from_tnm(nhd_layer, bbox, inSR=4326, raster_resolution=None):
     except AssertionError:
         js = r.json()
         for f in js['features']:
-            f['geometry'].update(
-                {'coordinates':[c[0:2] for c in f['geometry']['coordinates']]})
+            f['geometry'].update({
+                'coordinates': [c[0:2] for c in f['geometry']['coordinates']]
+            })
         gdf = gdf = gpd.GeoDataFrame.from_features(js)
 
     if len(gdf) > 0:
-        gdf = gpd.clip(gdf, box(*bbox))
+        clip_gdf = gpd.clip(gdf, box(*bbox))
 
     if raster_resolution:
         width = int(abs(bbox[2] - bbox[0]) // raster_resolution)
         height = int(abs(bbox[3] - bbox[1]) // raster_resolution)
-        transform = from_bounds(*bbox, width, height)
+        gdf_box = [int(x) for x in gdf.unary_union.bounds]
+        gdf_width = int(abs(gdf_box[2] - gdf_box[0]) // raster_resolution)
+        gdf_height = int(abs(gdf_box[3] - gdf_box[1]) // raster_resolution)
+
+        full_transform = transform.from_bounds(*gdf_box, gdf_width, gdf_height)
+        clip_win = windows.from_bounds(*bbox,
+                                       transform=full_transform,
+                                       width=width,
+                                       height=height)
         if len(gdf) > 0:
-            raster = rasterize(gdf.geometry,
-                               out_shape=(height, width),
-                               transform=transform)
+            full_raster = rasterize(gdf.boundary.geometry,
+                                    out_shape=(gdf_height, gdf_width),
+                                    transform=full_transform,
+                                    dtype='uint8')
+            clip_ras = full_raster[
+                clip_win.round_offsets().round_lengths().toslices()]
+        if distance_transform:
+            neg = np.logical_not(clip_ras)
+            raster = edt(neg)
         else:
-            raster = np.zeros((height, width), dtype=int)
+            raster = np.zeros((height, width), dtype='uint8')
         return raster
 
     else:
-        return gdf
+        return clip_gdf
 
 
-def watersheds_from_tnm(huc_level, bbox, inSR, raster_resolution=None):
+def watersheds_from_tnm(huc_level,
+                        bbox,
+                        inSR,
+                        raster_resolution=None,
+                        distance_transform=False):
     """Returns features for watershed boundaries at the geographic extent
     specified by the user from The National Map web service.
 
@@ -733,77 +860,102 @@ def watersheds_from_tnm(huc_level, bbox, inSR, raster_resolution=None):
     raster_resolution : numeric
       causes features to be returned in raster (rather than vector) format,
       with spatial resolution defined by this parameter.
+    distance_transform : bool
+      if result is rasterized, a value of True will return the distance from
+      the nearest feature rather than the binary raster of features.
+
+    Returns
+    -------
+    clip_gdf : GeoDataFrame
+      features in vector format, clipped to bbox
+    raster : array
+      features rasterized into an integer array with 0s as background values
+      and 1s wherever features occured; only returned if `raster_resolution` is
+      specified
     """
-    feature_ids = {2: 1, 4: 2, 6: 3, 8: 4, 10: 5, 12: 6, 14:7}
+    feature_ids = {2: 1, 4: 2, 6: 3, 8: 4, 10: 5, 12: 6, 14: 7}
     keys = feature_ids.keys()
     if huc_level not in keys:
         raise ValueError(f'huc_level not recognized, must be one of {keys}')
 
     feat_id = feature_ids[huc_level]
-    BASE_URL = ''.join(
-        ['https://hydro.nationalmap.gov/arcgis/rest/services/wbd/',
-         'MapServer/', str(feat_id), '/query?']
-    )
+    BASE_URL = ''.join([
+        'https://hydro.nationalmap.gov/arcgis/rest/services/wbd/',
+        'MapServer/',
+        str(feat_id), '/query?'
+    ])
 
-    params = dict(
-        where=None,
-        text=None,
-        objectIds=None,
-        time=None,
-        geometry=','.join([str(x) for x in bbox]),
-        geometryType='esriGeometryEnvelope',
-        inSR=inSR,
-        spatialRel='esriSpatialRelIntersects',
-        relationParam=None,
-        outFields=None,
-        returnGeometry='true',
-        returnTrueCurves='false',
-        maxAllowableOffset=None,
-        geometryPrecision=None,
-        outSR=inSR,
-        having=None,
-        returnIdsOnly='false',
-        returnCountOnly='false',
-        orderByFields=None,
-        groupByFieldsForStatistics=None,
-        outStatistics=None,
-        returnZ='false',
-        returnM='false',
-        gdbVersion=None,
-        historicMoment=None,
-        returnDistinctValues='false',
-        resultOffset=None,
-        resultRecordCount=None,
-        queryByDistance=None,
-        returnExtentOnly='false',
-        datumTransformation=None,
-        parameterValues=None,
-        rangeValues=None,
-        quantizationParameters=None,
-        featureEncoding='esriDefault',
-        f='geojson'
-        )
+    params = dict(where=None,
+                  text=None,
+                  objectIds=None,
+                  time=None,
+                  geometry=','.join([str(x) for x in bbox]),
+                  geometryType='esriGeometryEnvelope',
+                  inSR=inSR,
+                  spatialRel='esriSpatialRelIntersects',
+                  relationParam=None,
+                  outFields=None,
+                  returnGeometry='true',
+                  returnTrueCurves='false',
+                  maxAllowableOffset=None,
+                  geometryPrecision=None,
+                  outSR=inSR,
+                  having=None,
+                  returnIdsOnly='false',
+                  returnCountOnly='false',
+                  orderByFields=None,
+                  groupByFieldsForStatistics=None,
+                  outStatistics=None,
+                  returnZ='false',
+                  returnM='false',
+                  gdbVersion=None,
+                  historicMoment=None,
+                  returnDistinctValues='false',
+                  resultOffset=None,
+                  resultRecordCount=None,
+                  queryByDistance=None,
+                  returnExtentOnly='false',
+                  datumTransformation=None,
+                  parameterValues=None,
+                  rangeValues=None,
+                  quantizationParameters=None,
+                  featureEncoding='esriDefault',
+                  f='geojson')
 
     r = requests.get(BASE_URL, params=params)
     gdf = gpd.GeoDataFrame.from_features(r.json(), crs=inSR)
 
     if len(gdf) > 0:
-        gdf = gpd.clip(gdf, box(*bbox))
+        clip_gdf = gpd.clip(gdf, box(*bbox))
 
     if raster_resolution:
         width = int(abs(bbox[2] - bbox[0]) // raster_resolution)
         height = int(abs(bbox[3] - bbox[1]) // raster_resolution)
-        transform = from_bounds(*bbox, width, height)
+        gdf_box = [int(x) for x in gdf.unary_union.bounds]
+        gdf_width = int(abs(gdf_box[2] - gdf_box[0]) // raster_resolution)
+        gdf_height = int(abs(gdf_box[3] - gdf_box[1]) // raster_resolution)
+
+        full_transform = transform.from_bounds(*gdf_box, gdf_width, gdf_height)
+        clip_win = windows.from_bounds(*bbox,
+                                       transform=full_transform,
+                                       width=width,
+                                       height=height)
         if len(gdf) > 0:
-            raster = rasterize(gdf.geometry,
-                               out_shape=(height, width),
-                               transform=transform)
+            full_raster = rasterize(gdf.boundary.geometry,
+                                    out_shape=(gdf_height, gdf_width),
+                                    transform=full_transform,
+                                    dtype='uint8')
+            clip_ras = full_raster[
+                clip_win.round_offsets().round_lengths().toslices()]
+        if distance_transform:
+            neg = np.logical_not(clip_ras)
+            raster = edt(neg)
         else:
-            raster = np.zeros((height, width), dtype=int)
+            raster = np.zeros((height, width), dtype='uint8')
         return raster
 
     else:
-        return gdf
+        return clip_gdf
 
 
 def buildings_from_microsoft(bbox, inSR, raster_resolution=None):
@@ -820,54 +972,52 @@ def buildings_from_microsoft(bbox, inSR, raster_resolution=None):
       causes features to be returned in raster (rather than vector) format,
       with spatial resolution defined by this parameter.
     """
-    BASE_URL = ''.join(
-        ['https://services.arcgis.com/P3ePLMYs2RVChkJx/ArcGIS/rest/services/',
-         'MSBFP2/FeatureServer/0/query?']
-    )
+    BASE_URL = ''.join([
+        'https://services.arcgis.com/P3ePLMYs2RVChkJx/ArcGIS/rest/services/',
+        'MSBFP2/FeatureServer/0/query?'
+    ])
 
-    params = dict(
-        where=None,
-        objectIds=None,
-        time=None,
-        geometry=','.join([str(x) for x in bbox]),
-        geometryType='esriGeometryEnvelope',
-        inSR=inSR,
-        spatialRel='esriSpatialRelIntersects',
-        resultType='none',
-        distance=0.0,
-        units='esriSRUnit_Meter',
-        returnGeodetic='false',
-        outFields=None,
-        returnGeometry='true',
-        returnCentroid='false',
-        featureEncoding='esriDefault',
-        multipatchOption='xyFootprint',
-        maxAllowableOffset=None,
-        geometryPrecision=None,
-        outSR=inSR,
-        datumTransformation=None,
-        applyVCSProjection='false',
-        returnIdsOnly='false',
-        returnUniqueIdsOnly='false',
-        returnCountOnly='false',
-        returnExtentOnly='false',
-        returnQueryGeometry='false',
-        returnDistinctValues='false',
-        cacheHint='false',
-        orderByFields=None,
-        groupByFieldsForStatistics=None,
-        outStatistics=None,
-        having=None,
-        resultOffset=None,
-        resultRecordCount=None,
-        returnZ='false',
-        returnM='false',
-        returnExceededLimitFeatures='true',
-        quantizationParameters=None,
-        sqlFormat='none',
-        f='pgeojson',
-        token=None
-        )
+    params = dict(where=None,
+                  objectIds=None,
+                  time=None,
+                  geometry=','.join([str(x) for x in bbox]),
+                  geometryType='esriGeometryEnvelope',
+                  inSR=inSR,
+                  spatialRel='esriSpatialRelIntersects',
+                  resultType='none',
+                  distance=0.0,
+                  units='esriSRUnit_Meter',
+                  returnGeodetic='false',
+                  outFields=None,
+                  returnGeometry='true',
+                  returnCentroid='false',
+                  featureEncoding='esriDefault',
+                  multipatchOption='xyFootprint',
+                  maxAllowableOffset=None,
+                  geometryPrecision=None,
+                  outSR=inSR,
+                  datumTransformation=None,
+                  applyVCSProjection='false',
+                  returnIdsOnly='false',
+                  returnUniqueIdsOnly='false',
+                  returnCountOnly='false',
+                  returnExtentOnly='false',
+                  returnQueryGeometry='false',
+                  returnDistinctValues='false',
+                  cacheHint='false',
+                  orderByFields=None,
+                  groupByFieldsForStatistics=None,
+                  outStatistics=None,
+                  having=None,
+                  resultOffset=None,
+                  resultRecordCount=None,
+                  returnZ='false',
+                  returnM='false',
+                  returnExceededLimitFeatures='true',
+                  quantizationParameters=None,
+                  sqlFormat='none',
+                  f='pgeojson',
+                  token=None)
 
     r = requests.get(BASE_URL, params=params)
     gdf = gpd.GeoDataFrame.from_features(r.json(), crs=inSR)
@@ -878,13 +1028,14 @@ def buildings_from_microsoft(bbox, inSR, raster_resolution=None):
     if raster_resolution:
         width = int(abs(bbox[2] - bbox[0]) // raster_resolution)
         height = int(abs(bbox[3] - bbox[1]) // raster_resolution)
-        transform = from_bounds(*bbox, width, height)
+        trf = transform.from_bounds(*bbox, width, height)
         if len(gdf) > 0:
             raster = rasterize(gdf.geometry,
                                out_shape=(height, width),
-                               transform=transform)
+                               transform=trf,
+                               dtype='uint8')
         else:
-            raster = np.zeros((height, width), dtype=int)
+            raster = np.zeros((height, width), dtype='uint8')
         return raster
 
     else:
@@ -915,10 +1066,10 @@ def quad_fetch(fetcher, bbox, num_threads=4, *args, **kwargs):
 
     """
     xmin, ymin, xmax, ymax = bbox
-    nw_bbox = [xmin, (ymin + ymax) / 2, (xmin + xmax)/2, ymax]
-    ne_bbox = [(xmin + xmax)/2, (ymin + ymax)/2, xmax, ymax]
-    sw_bbox = [xmin, ymin, (xmin + xmax)/2, (ymin + ymax)/2]
-    se_bbox = [(xmin + xmax)/2, ymin, xmax, (ymin + ymax)/2]
+    nw_bbox = [xmin, (ymin + ymax) / 2, (xmin + xmax) / 2, ymax]
+    ne_bbox = [(xmin + xmax) / 2, (ymin + ymax) / 2, xmax, ymax]
+    sw_bbox = [xmin, ymin, (xmin + xmax) / 2, (ymin + ymax) / 2]
+    se_bbox = [(xmin + xmax) / 2, ymin, xmax, (ymin + ymax) / 2]
 
     bboxes = [nw_bbox, ne_bbox, sw_bbox, se_bbox]
 
@@ -931,3 +1082,167 @@ def quad_fetch(fetcher, bbox, num_threads=4, *args, **kwargs):
     quad_img = np.vstack([np.hstack([nw, ne]), np.hstack([sw, se])])
 
     return quad_img
+
+
+def metadata_from_noaa_digital_coast(bbox, inSR=4326, **kwargs):
+    """Returns metadata about lidar acquisitions from NOAA Digital Coast.
+
+    Parameters
+    ----------
+    bbox : list-like
+      list of bounding box coordinates (minx, miny, maxx, maxy).
+    inSR : int
+      spatial reference for bounding box, such as an EPSG code (e.g., 4326)
+
+    Returns
+    -------
+    gdf : GeoDataFrame
+      features in vector format
+    """
+    BASE_URL = ''.join([
+        'https://maps.coast.noaa.gov/arcgis/rest/services/DAV/',
+        'ElevationFootprints/MapServer/0/query?'
+    ])
+
+    params = dict(where=None,
+                  text=None,
+                  objectIds=None,
+                  time=None,
+                  geometry=','.join([str(x) for x in bbox]),
+                  geometryType='esriGeometryEnvelope',
+                  inSR=inSR,
+                  spatialRel='esriSpatialRelIntersects',
+                  relationParam=None,
+                  outFields='*',
+                  returnGeometry='true',
+                  returnTrueCurves='false',
+                  maxAllowableOffset=None,
+                  geometryPrecision=None,
+                  outSR=inSR,
+                  returnIdsOnly='false',
+                  returnCountOnly='false',
+                  orderByFields=None,
+                  groupByFieldsForStatistics=None,
+                  outStatistics=None,
+                  returnZ='false',
+                  returnM='false',
+                  gdbVersion=None,
+                  returnDistinctValues='false',
+                  resultOffset=None,
+                  resultRecordCount=None,
+                  f='geojson')
+
+    for key, value in kwargs.items():
+        params.update({key: value})
+
+    r = requests.get(BASE_URL, params=params)
+    if params['outSR'] != inSR:
+        crs = params['outSR']
+    else:
+        crs = params['inSR']
+
+    gdf = gpd.GeoDataFrame.from_features(r.json(), crs=crs)
+    for col in gdf.columns:
+        if gdf[col].dtype == 'O':
+            gdf[col] = gdf[col].str.strip(',')
+
+    return gdf
+
+
+def scrape_hyperlinks(url):
+    """Parses a web page and returns a list of all hyperlinks on it.
+
+    Parameters
+    ----------
+    url : str
+      URL of web page to scrape links from
+
+    Returns
+    -------
+    links : list
+      list of hyperlinks found
+
+    """
+    response = requests.get(url)
+    soup = BeautifulSoup(response.content, "html.parser")
+
+    links = [x.get('href') for x in soup.findAll('a')]
+    return links
+
+
+def tileindex_from_noaa_digital_coast(url, crs=None):
+    """Retrieves a tile index from a NOAA Digital Coast web page and returns
+    the result as a GeoDataFrame.
+
+    Parameters
+    ----------
+    url : str
+      URL of web page for a dataset hosted by NOAA Digital Coast.
+
+    Returns
+    -------
+    gdf : GeoDataFrame
+      tile index for the dataset
+    """
+    links = scrape_hyperlinks(url)
+    zip_url = [url + l for l in links if 'tileindex' in l]
+
+    if len(zip_url) > 1:
+        warnings.warn(f'''More than one tileindex found at {url}.
+                      Returning only the first: {zip_url[0]}.''')
+    if len(zip_url) == 0:
+        raise IndexError("No files found with 'tileindex' in name.")
+
+    gdf = gpd.read_file(zip_url[0])
+
+    for col in gdf.columns:
+        if gdf[col].dtype == 'O':
+            gdf[col] = gdf[col].str.strip()
+
+    if crs:
+        return gdf.to_crs(crs)
+    else:
+        return gdf
+
+
+def intersecting_tiles_noaa_digital_coast(aoi, crs=4326, **kwargs):
+    """Returns a list of tiles that intersect a user-defined Area of Interest
+    (AOI) from datasets hosted on NOAA Digital Coast.
+
+    Parameters
+    ----------
+    aoi : geometry
+      Shapely geometry (e.g., Polygon) depicting the user's AOI
+    crs : str, int, or CRS
+      anything that can be interpreted by GeoPandas as a Coordinate Reference
+      System
+    kwargs
+      additional keyword arguments that will be passed to the request to NOAA
+      Digital Coast retrieving metadata on available datasets
+
+    Returns
+    -------
+    tile_dict : dictionary
+      dictionary where each key is the project ID used by NOAA with two entries
+      per project: 'metadata' containing a dictionary with all metadata
+      retrieved, and 'tile_gdf' containing a GeoDataFrame with information
+      about any tiles that intersect the user's AOI
+    """
+    if type(crs) == CRS:
+        crs = crs.to_epsg()
+
+    bbox = aoi.bounds
+    metadata = metadata_from_noaa_digital_coast(bbox, inSR=crs, **kwargs)
+
+    tile_dict = {}
+    for idx, row in metadata.iterrows():
+        url = metadata.loc[idx]['ExternalProviderLink']
+        tileindex = tileindex_from_noaa_digital_coast(url, crs=crs)
+        aoi_tiles = tileindex.loc[tileindex.geometry.intersects(aoi)]
+
+        if len(aoi_tiles) > 0:
+            tile_dict[metadata.loc[idx]['ID']] = {
+                'metadata': metadata.loc[idx].to_dict(),
+                'tile_gdf': aoi_tiles
+            }
+    return tile_dict
