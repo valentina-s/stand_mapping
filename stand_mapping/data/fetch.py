@@ -158,7 +158,7 @@ def naip_from_tnm(bbox, res, inSR=4326, **kwargs):
     bbox : list-like
       list of bounding box coordinates (minx, miny, maxx, maxy)
     res : numeric
-      spatial resolution to use for returned DEM (grid cell size)
+      spatial resolution to use for returned image (grid cell size)
     inSR : int
       spatial reference for bounding box, such as an EPSG code (e.g., 4326)
 
@@ -336,6 +336,83 @@ def tpi_from_tnm(bbox,
         tpi = (tpi - tpi_mean) / tpi_std
 
     return tpi
+
+
+def nlcd_from_mrlc(bbox, res, layer, inSR=4326, nlcd=True, **kwargs):
+    """
+    Retrieves National Land Cover Data (NLCD) Layers from the Multiresolution
+    Land Characteristics Consortium's web service.
+
+    Parameters
+    ----------
+    bbox : list-like
+      list of bounding box coordinates (minx, miny, maxx, maxy)
+    res : numeric
+      spatial resolution to use for returned image (grid cell size)
+    layer : str
+      title of layer to retrieve (e.g., 'NLCD_2001_Land_Cover_L48')
+    inSR : int
+      spatial reference for bounding box, such as an EPSG code (e.g., 4326)
+    nlcd : bool
+      if True, will re-map the values returned to the NLCD land cover codes
+
+    Returns
+    -------
+    img : numpy array
+      map image as array
+    """
+    width = int(abs(bbox[2] - bbox[0]) // res)
+    height = int(abs(bbox[3] - bbox[1]) // res)
+    BASE_URL = ''.join([
+        'https://www.mrlc.gov/geoserver/mrlc_display/wms?',
+        'service=WMS&request=GetMap',
+    ])
+
+    params = dict(bbox=','.join([str(x) for x in bbox]),
+                  crs=f'epsg:{inSR}',
+                  width=width,
+                  height=height,
+                  format='image/tiff',
+                  layers=layer)
+    for key, value in kwargs.items():
+        params.update({key: value})
+
+    r = requests.get(BASE_URL, params=params)
+    img = imread(io.BytesIO(r.content), format='tiff')
+
+    if nlcd:
+        MAPPING = {
+            1: 11,  # open water
+            2: 12,  # perennial ice/snow
+            3: 21,  # developed, open space
+            4: 22,  # developed, low intensity
+            5: 23,  # developed, medium intensity
+            6: 24,  # developed, high intensity
+            7: 31,  # barren land (rock/stand/clay)
+            8: 32,  # unconsolidated shore
+            9: 41,  # deciduous forest
+            10: 42,  # evergreen forest
+            11: 43,  # mixed forest
+            12: 51,  # dwarf scrub (AK only)
+            13: 52,  # shrub/scrub
+            14: 71,  # grasslands/herbaceous,
+            15: 72,  # sedge/herbaceous (AK only)
+            16: 73,  # lichens (AK only)
+            17: 74,  # moss (AK only)
+            18: 81,  # pasture/hay
+            19: 82,  # cultivated crops
+            20: 90,  # woody wetlands
+            21: 95,  # emergent herbaceous wetlands
+        }
+
+        k = np.array(list(MAPPING.keys()))
+        v = np.array(list(MAPPING.values()))
+
+        mapping_ar = np.zeros(k.max() + 1, dtype=v.dtype)
+        mapping_ar[k] = v
+        img = mapping_ar[img]
+
+    return img
 
 
 def ways_from_osm(bbox,
