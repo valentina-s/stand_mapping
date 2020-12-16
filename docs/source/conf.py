@@ -24,6 +24,7 @@ sys.path.insert(0, os.path.abspath('../../../stand_mapping'))
 autodoc_mock_imports = [
     'affine',
     'base64',
+    'bs4',
     'dotenv',
     'geopandas',
     'imageio',
