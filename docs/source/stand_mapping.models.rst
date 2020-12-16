@@ -12,7 +12,6 @@ stand\_mapping.models.segmentation module
    :undoc-members:
    :show-inheritance:
 
-
 Module contents
 ---------------
 

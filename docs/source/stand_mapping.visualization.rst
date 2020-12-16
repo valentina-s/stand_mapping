@@ -12,7 +12,6 @@ stand\_mapping.visualization.visualize module
    :undoc-members:
    :show-inheritance:
 
-
 Module contents
 ---------------
 

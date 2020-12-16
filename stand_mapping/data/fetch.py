@@ -1484,6 +1484,24 @@ def contour_images_from_tnm(bbox, img_width, img_height, inSR=3857,
     return img
 
 def elevation_point_query_tnm(lon, lat, units='Feet', format='json'):
+    """Retrieves elevation for a point from The National Map
+
+    Parameters
+    ----------
+    lon : numeric
+      longitude of query point
+    lat : numeric
+      latitude of query point
+    units : str
+      elevation units, 'Feet' or 'Meters'
+    format : str
+      format for web request to return
+
+    Returns
+    -------
+    elev : numeric
+      elevation of the query point
+    """
     BASE_URL = 'https://nationalmap.gov/epqs/pqs.php?'
     data = {'x': lon, 'y': lat, 'units':units, 'output':format}
     r = request.post(BASE_URL, data=data)
@@ -1491,6 +1509,25 @@ def elevation_point_query_tnm(lon, lat, units='Feet', format='json'):
     return elev
 
 def contours_from_tnm_dem(bbox, width, height, inSR=3857):
+    """Fetches a DEM from The National Map and returns a PIL image with
+    labeled contours
+
+    Parameters
+    ----------
+    bbox : list-like
+      bounding box with coordinats as (xmin, ymin, xmax, ymax)
+    width : int
+      width of image to return
+    height : int
+      height of image to return
+    inSR : int
+      code for coordinate reference system
+
+    Returns
+    -------
+    img : PIL Image
+      rendered image with contours styled and labeled
+    """
     from matplotlib import ticker
     from matplotlib import patheffects as pe
 
@@ -1519,23 +1556,26 @@ def contours_from_tnm_dem(bbox, width, height, inSR=3857):
     for label in labels:
         label.set_path_effects([pe.withStroke(linewidth=1, foreground='w')])
 
-    return plt_to_pil_image(fig, dpi=300)
+    img = plt_to_pil_image(fig, dpi=300)
+    return img
 
 
 def plt_to_pil_image(plt_figure, dpi=200, transparent=False):
     """
     Converts a matplotlib figure to a PIL Image (in memory).
+
     Parameters
-    ---------
+    ----------
     plt_figure : matplotlib Figure object
       the figure to convert
     dpi : int
       the number of dots per inch to render the image
     transparent : bool, optional
       render plt with a transparent background
+
     Returns
     -------
-    pil_image : Image
+    pil_image : PIL Image
       the figure converted to a PIL Image
     """
     fig = plt.figure(plt_figure.number)

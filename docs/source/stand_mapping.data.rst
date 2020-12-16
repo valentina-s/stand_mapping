@@ -20,7 +20,6 @@ stand\_mapping.data.util module
    :undoc-members:
    :show-inheritance:
 
-
 Module contents
 ---------------
 
