@@ -635,11 +635,7 @@ def water_bodies_from_dnr(layer_num,
         return clip_gdf
 
 
-def parcels_from_wa(bbox,
-                    inSR=4326,
-                    raster_resolution=None,
-                    distance_transform=False,
-                    **kwargs):
+def parcels_from_wa(bbox, inSR=4326, **kwargs):
     """
     Returns tax lot boundaries as features from the Washington Geospatial
     Open Data Portal
@@ -650,21 +646,11 @@ def parcels_from_wa(bbox,
       list of bounding box coordinates (minx, miny, maxx, maxy).
     inSR : int
       spatial reference for bounding box, such as an EPSG code (e.g., 4326)
-    raster_resolution : numeric
-      if provided, the results will be returned as a raster with grid cell size
-    distance_transform : bool
-      if result is rasterized, a value of True will return the distance from
-      the nearest feature rather than the binary raster of features.
 
     Returns
     -------
     clip_gdf : GeoDataFrame
       features in vector format, clipped to bbox
-    raster : array
-      features rasterized into an integer array with 0s as background values
-      and 1s wherever features occured; only returned if `raster_resolution` is
-      specified
-
     """
     BASE_URL = ''.join([
         'https://services.arcgis.com/jsIt88o09Q0r1j8h/arcgis/rest/services/',
@@ -718,43 +704,61 @@ def parcels_from_wa(bbox,
         params.update({key: value})
 
     r = requests.get(BASE_URL, params=params)
-    gdf = gpd.GeoDataFrame.from_features(r.json(), crs=inSR)
-    try:
-        clip_gdf = gpd.clip(gdf, box(*bbox))
-    except TopologicalError:
-        try:
-            clip_gdf = gpd.clip(gdf.buffer(0), box(*bbox))
-        except:
-            raise
-
-    if raster_resolution:
-        width = int(abs(bbox[2] - bbox[0]) // raster_resolution)
-        height = int(abs(bbox[3] - bbox[1]) // raster_resolution)
-        gdf_box = [int(x) for x in gdf.unary_union.bounds]
-        gdf_width = int(abs(gdf_box[2] - gdf_box[0]) // raster_resolution)
-        gdf_height = int(abs(gdf_box[3] - gdf_box[1]) // raster_resolution)
-
-        full_transform = transform.from_bounds(*gdf_box, gdf_width, gdf_height)
-        clip_win = windows.from_bounds(*bbox,
-                                       transform=full_transform,
-                                       width=width,
-                                       height=height)
-        if len(gdf) > 0:
-            full_raster = rasterize(gdf.boundary.geometry,
-                                    out_shape=(gdf_height, gdf_width),
-                                    transform=full_transform,
-                                    dtype='uint8')
-            clip_ras = full_raster[
-                clip_win.round_offsets().round_lengths().toslices()]
-        if distance_transform:
-            neg = np.logical_not(clip_ras)
-            raster = edt(neg)
-        else:
-            raster = np.zeros((height, width), dtype='uint8')
-        return raster
-
+    jsn = r.json()
+    if len(jsn['features']) == 0:
+        clip_gdf = gpd.GeoDataFrame(geometry=[Polygon()], crs=inSR)
     else:
-        return clip_gdf
+        gdf = gpd.GeoDataFrame.from_features(jsn, crs=inSR)
+        gdf['geometry'] = gdf.buffer(0)
+        clip_gdf = gpd.clip(gdf, box(*bbox))
+
+    return clip_gdf
+
+
+def parcels_from_or(bbox, inSR=4326, **kwargs):
+    """
+    Returns tax lot boundaries as features from ORMAP
+
+    Parameters
+    ----------
+    bbox : list-like
+      list of bounding box coordinates (minx, miny, maxx, maxy).
+    inSR : int
+      spatial reference for bounding box, such as an EPSG code (e.g., 4326)
+
+    Returns
+    -------
+    clip_gdf : GeoDataFrame
+      features in vector format, clipped to bbox
+    """
+    BASE_URL = ''.join([
+        'https://utility.arcgis.com/usrsvcs/servers/',
+        '78bbb0d0d9c64583ad5371729c496dcc/rest/services/',
+        'Secure/DOR_ORMAP/MapServer/3/query?',
+    ])
+
+    params = dict(f='geojson',
+                  returnGeometry='true',
+                  spatialRel='esriSpatialRelIntersects',
+                  geometry=(f'{{"xmin":{bbox[0]},"ymin":{bbox[1]},'
+                            f'"xmax":{bbox[2]},"ymax":{bbox[3]},'
+                            f'"spatialReference":{{"wkid":{inSR}}}}}'),
+                  geometryType='esriGeometryEnvelope',
+                  outFields='*',
+                  outSR=inSR)
+    for key, value in kwargs.items():
+        params.update({key: value})
+
+    r = requests.get(BASE_URL, params=params)
+    jsn = r.json()
+    if len(jsn['features']) == 0:
+        clip_gdf = gpd.GeoDataFrame(geometry=[Polygon()], crs=inSR)
+    else:
+        gdf = gpd.GeoDataFrame.from_features(jsn, crs=inSR)
+        gdf['geometry'] = gdf.buffer(0)
+        clip_gdf = gpd.clip(gdf, box(*bbox))
+
+    return clip_gdf
 
 
 def nhd_from_tnm(nhd_layer,
@@ -1323,3 +1327,222 @@ def intersecting_tiles_noaa_digital_coast(aoi, crs=4326, **kwargs):
                 'tile_gdf': aoi_tiles
             }
     return tile_dict
+
+
+def contour_images_from_tnm(bbox, img_width, img_height, inSR=3857,
+                            index_contour_style=None,
+                            intermediate_contour_style=None,
+                            contour_label_style=None):
+    """
+    Retrieves an image of contour lines and labels from The National Map.
+
+    Parameters
+    ----------
+    bbox : list-like
+      list of bounding box coordinates (minx, miny, maxx, maxy)
+    img_width : int
+      width of image to return, in pixels
+    img_height : int
+      height of image to return, in pixels
+    inSR : int, optional
+      spatial reference for bounding box, such as an EPSG code (e.g., 4326)
+    index_contour_style : dict, optional
+      dict with key, value pairs indicating elements of the line style to
+      update for the 100-foot contour lines
+    intermediate_contour_style : dict, optional
+      dict with key, value pairs indicating elements of the line style to
+      update for intermediate (50-foot) contour lines
+    contour_label_style : dict, option
+      dict with key, value pairs indicating elements of label style to update
+      for the 100-foot contour labels
+
+    Returns
+    -------
+    img : array
+      image as a 3-band or 4-band array
+    """
+    BASE_URL = ''.join([
+        'https://carto.nationalmap.gov/arcgis/rest/services/',
+        'contours/MapServer/export?'
+    ])
+
+    index_contour_symbol = {
+      "type": "esriSLS",
+      "style": "esriSLSSolid",
+      "color": [32,96,0,255],
+      "width": 1.5
+      }
+    if index_contour_style is not None:
+        index_contour_symbol.update(index_contour_style)
+
+    intermediate_contour_symbol = {
+      "type": "esriSLS",
+      "style": "esriSLSSolid",
+      "color": [32,96,0,255],
+      "width": 0.5
+      }
+    if intermediate_contour_style is not None:
+        intermediate_contour_symbol.update(intermediate_contour_style)
+
+    label_symbol = {
+      "type":"esriTS",
+      "color":[15,39,3,255],
+      "backgroundColor":None,
+      "outlineColor":None,
+      "verticalAlignment":"baseline",
+      "horizontalAlignment":"left",
+      "rightToLeft":False,
+      "angle":0,
+      "xoffset":0,
+      "yoffset":0,
+      "kerning":True,
+      "haloSize":2,
+      "haloColor":[255,255,255,255],
+      "font":{
+          "family":"Arial",
+          "size":12,
+          "style":"italic",
+          "weight":"normal",
+          "decoration":"none"
+          }
+      }
+    if contour_label_style is not None:
+        for key in contour_label_style:
+            if isinstance(contour_label_style[key], dict):
+                label_symbol[key].update(contour_label_style[key])
+            else:
+                label_symbol.update(((key, contour_label_style[key]),))
+
+    styles = [
+    {"id":25,
+     "source":{"type":"mapLayer", "mapLayerId":25},
+     "drawingInfo":{
+         "renderer":{
+             "type":"simple",
+              "symbol":index_contour_symbol,
+              },
+         },
+     },
+    {"id":26,
+     "source":{"type":"mapLayer", "mapLayerId":26},
+     "drawingInfo":{
+         "renderer":{
+             "type":"simple",
+             "symbol":intermediate_contour_symbol,
+             },
+         },
+     },
+     {"id":21,
+      "source":{"type":"mapLayer", "mapLayerId":21},
+      "drawingInfo":{
+          "renderer":{
+              "type":"uniqueValue",
+              "field1":"FCODE",
+               "fieldDelimiter":",",
+               },
+          "labelingInfo":[
+              {
+               "labelPlacement":"esriServerLinePlacementCenterAlong",
+               "labelExpression":"[CONTOURELEVATION]",
+               "useCodedValues":True,
+               "symbol":label_symbol,
+               "minScale":0,
+               "maxScale":0
+               }
+              ]
+          }
+      }
+     ]
+
+    params = dict(
+        bbox=','.join([str(x) for x in bbox]),
+        bboxSR=inSR,
+        layers='show:21,25,26',
+        layerDefs=None,
+        size=f'{img_width},{img_height}',
+        imageSR=inSR,
+        historicMoment=None,
+        format='png',
+        transparent=True,
+        dpi=None,
+        time=None,
+        layerTimeOptions=None,
+        dynamicLayers=json.dumps(styles),
+        gdbVersion=None,
+        mapScale=None,
+        rotation=None,
+        datumTransformations=None,
+        layerParameterValues=None,
+        mapRangeValues=None,
+        layerRangeValues=None,
+        f='image',
+    )
+
+    r = requests.get(BASE_URL, params=params)
+    img = imread(io.BytesIO(r.content))
+
+    return img
+
+def elevation_point_query_tnm(lon, lat, units='Feet', format='json'):
+    BASE_URL = 'https://nationalmap.gov/epqs/pqs.php?'
+    data = {'x': lon, 'y': lat, 'units':units, 'output':format}
+    r = request.post(BASE_URL, data=data)
+    elev = r.json()['USGS_Elevation_Point_Query_Service']['Elevation_Query']['Elevation']
+    return elev
+
+def contours_from_tnm_dem(bbox, width, height, inSR=3857):
+    from matplotlib import ticker
+    from matplotlib import patheffects as pe
+
+    dem = dem_from_tnm(bbox, width, height, inSR=inSR) * 3.28084
+    fig = plt.figure(frameon=False)
+    fig.set_size_inches(1.697, 2.407)
+    ax = plt.Axes(fig, [0., 0., 1., 1.])
+    ax.set_axis_off()
+    ax.set_aspect('equal')
+    fig.add_axes(ax)
+    COLOR = (32/255.,96/255.,0.,255/255.)
+
+    min_40, max_40 = np.floor(dem.min()/40)*40, np.ceil(dem.max()/40)*40+40
+    min_200, max_200 = np.floor(dem.min()/200)*200, np.ceil(dem.max()/200)*200+200
+
+    cont_40 =  ax.contour(dem, levels=np.arange(min_40,max_40,40),
+                          colors=[COLOR],
+                          linewidths=[0.15])
+    cont_200 = ax.contour(dem, levels=np.arange(min_200,max_200,200),
+                          colors=[COLOR],
+                          linewidths=[0.5])
+    fmt = ticker.StrMethodFormatter("{x:,.0f} ft")
+    labels = ax.clabel(cont_200, fontsize=3,
+                       colors=[COLOR], fmt=fmt,
+                       inline_spacing=0)
+    for label in labels:
+        label.set_path_effects([pe.withStroke(linewidth=1, foreground='w')])
+
+    return plt_to_pil_image(fig, dpi=300)
+
+
+def plt_to_pil_image(plt_figure, dpi=200, transparent=False):
+    """
+    Converts a matplotlib figure to a PIL Image (in memory).
+    Parameters
+    ---------
+    plt_figure : matplotlib Figure object
+      the figure to convert
+    dpi : int
+      the number of dots per inch to render the image
+    transparent : bool, optional
+      render plt with a transparent background
+    Returns
+    -------
+    pil_image : Image
+      the figure converted to a PIL Image
+    """
+    fig = plt.figure(plt_figure.number)
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png', dpi=dpi, transparent=transparent)
+    buf.seek(0)
+    pil_image = Image.open(buf)
+    plt.close()
+
+    return pil_image
