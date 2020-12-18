@@ -25,7 +25,6 @@ Runtime Requirements
   scikit-image
   scikit-learn
   torchvision
-  osmnx (for fetching data from Open Street Map)
 
 
 Recommended for interactive visualization and development
@@ -33,5 +32,4 @@ Recommended for interactive visualization and development
 
   ipywidgets
   jupyterlab
-  python-dotenv
   seaborn

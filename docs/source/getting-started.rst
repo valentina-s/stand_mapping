@@ -41,7 +41,7 @@ Once that is done, you should be able to import any functions or modules from
   >>> XMIN, YMIN = 555750, 5266200
   >>> WIDTH, HEIGHT = 500, 500
   >>> BBOX = (XMIN, YMIN, XMIN+WIDTH, YMIN+HEIGHT)
-  >>> img = get_naip_from_tnm(BBOX, res=1, bboxSR=6339, imgSR=6339)
+  >>> img = get_naip_from_tnm(BBOX, res=1, inSR=6339)
   >>> img.shape
   (500,500,4)
 
