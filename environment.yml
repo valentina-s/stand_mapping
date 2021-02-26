@@ -5,24 +5,33 @@ channels:
   - pytorch
 
 dependencies:
+  - albumentations
+  - beautifulsoup4
   - descartes
+  - earthengine-api
   - geopandas
   - ipywidgets
   - jupyterlab
   - matplotlib
-  - numpy
-  - osmnx
-  - pandas
+  - neptune-client
+  - pip
+  - pystac
   - python
   - python-dotenv
   - pytorch
   - rasterio
+  - rioxarray
   - scikit-image
   - scikit-learn
   - scikit-optimize
   - seaborn
   - sphinx
   - sphinx_rtd_theme
+  - tensorboard
   - torchvision
+  - tqdm
+  - pip:
+    - overpass
+    - neptune-tensorboard
 
 prefix: /home/ddiaz/anaconda3/stand_mapping

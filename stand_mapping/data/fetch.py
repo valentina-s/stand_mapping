@@ -14,10 +14,9 @@ from multiprocessing.pool import ThreadPool
 from pyproj.crs.crs import CRS
 from rasterio import transform, windows
 from rasterio.features import rasterize
-from shapely.errors import TopologicalError
-from shapely.geometry import box, LineString, MultiLineString
+from shapely.geometry import box
 import geopandas as gpd
-import osmnx as ox
+import overpass
 
 from imageio import imread
 from scipy.ndimage.filters import convolve
@@ -26,14 +25,13 @@ from skimage.morphology import disk
 from skimage.transform import resize
 from skimage.util import apply_parallel
 
-from .util import multi_to_single_linestring
-
 
 def landcover_from_ai4earth(bbox,
                             inSR,
                             api_key,
                             weights=[0.25, 0.25, 0.25, 0.25],
-                            prediction_type='hard'):
+                            prediction_type='hard',
+                            verbose=True):
     """
     Retrieve land cover classification image from the Microsoft AI for Earth,
     v2 API within a user-defined bounding box.
@@ -86,12 +84,14 @@ def landcover_from_ai4earth(bbox,
         },
         "weights": weights
     }
-    print('Retrieving image from AI for Earth Land Cover API', end='... ')
+    if verbose:
+        print('Retrieving image from AI for Earth Land Cover API', end='... ')
     r = requests.post(BASE_URL, json=extent, headers=api_header).json()
 
     hard_cover = imread(io.BytesIO(base64.b64decode(r['output_hard'])))
     soft_cover = imread(io.BytesIO(base64.b64decode(r['output_soft'])))
-    print('Done.')
+    if verbose:
+        print('Done.')
 
     if prediction_type == 'hard':
         return hard_cover
@@ -104,7 +104,7 @@ def landcover_from_ai4earth(bbox,
             "prediction_type must be one of 'hard', 'soft', or 'both'.")
 
 
-def naip_from_ai4earth(bbox, inSR, api_key):
+def naip_from_ai4earth(bbox, inSR, api_key, verbose=True):
     """
     Retrieve 3-band NAIP image from the Microsoft AI for Earth, v2 API within
     a bounding box.
@@ -141,10 +141,12 @@ def naip_from_ai4earth(bbox, inSR, api_key):
             },
         }
     }
-    print('Retrieving image from AI for Earth Land Cover API', end='... ')
+    if verbose:
+        print('Retrieving image from AI for Earth Land Cover API', end='... ')
     r = requests.post(BASE_URL, json=extent, headers=api_header).json()
     naip = imread(io.BytesIO(base64.b64decode(r['input_naip'])))
-    print('Done.')
+    if verbose:
+        print('Done.')
 
     return naip
 
@@ -415,27 +417,8 @@ def nlcd_from_mrlc(bbox, res, layer, inSR=4326, nlcd=True, **kwargs):
     return img
 
 
-def ways_from_osm(bbox,
-                  crs=None,
-                  dissolve=False,
-                  polygonize=False,
-                  raster_resolution=None,
-                  distance_transform=False,
-                  **kwargs):
+def roads_from_osm(bbox, crs=None):
     """Retrieves ways from Open Street Map clipped to a bounding box.
-
-    This utilizes the `OSMnx` package which can execute web queries using the
-    Overpass API for Open Street Map.
-
-    Optional keyword arguments are passed to the `graph_from_polygon` function
-    in the `osmnx.graph` module.
-
-    One of the most useful keyword arguments for this command is
-    `custom_filter`, which can be used to request, for example, waterways by
-    specifying `custom_filter = '["waterway"]'`. Similarly, lakes and ponds
-    may be returned with `custom_filter = '["natural"="water"]'`. This
-    function returns "ways" from Open Street Map as a `NetworkX` graph, so
-    filters are limited to different "ways".
 
     Parameters
     ----------
@@ -444,84 +427,40 @@ def ways_from_osm(bbox,
     crs : coordinate reference system
       a string, integer, or class instance which can be interpreted by
       GeoPandas as a Coordinate References System.
-    polygonize : bool
-      whether to dissolve features by `osmid` and convert into a polygon using
-      the convex hull of the features. this may be useful when features
-      represent areas rather than lines (e.g., using when using `custom_filter
-      = '["waterway"]'`).
-    raster_resolution : numeric
-      if provided, the results will be returned as a raster with grid cell size
-    distance_transform : bool
-      if result is rasterized, a value of True will return the distance from
-      the nearest feature rather than the binary raster of features.
 
     Returns
     -------
-    clip_gdf : GeoDataFrame
+    gdf : GeoDataFrame
       features in vector format, clipped to bbox
-    raster : array
-      features rasterized into an integer array with 0s as background values
-      and 1s wherever features occured; only returned if `raster_resolution` is
-      specified
     """
-    if crs:
+    if crs is not None:
         geom = box(*bbox)
-        bbox_gdf = gpd.GeoDataFrame(geometry=[geom], crs=crs)
-        latlon_bbox = bbox_gdf.to_crs(epsg=4326)['geometry'].iloc[0]
+        bbox_gdf = gpd.GeoDataFrame(geometry=[geom]).set_crs(epsg=crs)
+        latlon_bbox = bbox_gdf.to_crs(epsg=4326).iloc[0]['geometry'].bounds
     else:
         latlon_bbox = box(*bbox)
 
-    # retrieve the data from OSM as a networkx graph
-    g = ox.graph.graph_from_polygon(polygon=latlon_bbox, **kwargs)
+    xmin, ymin, xmax, ymax = latlon_bbox
 
-    # convert to geodataframe
-    gdf = ox.utils_graph.graph_to_gdfs(g, nodes=False)
-
-    if polygonize:
-        gdf = gdf.dissolve(by='osmid',
-                           aggfunc={
-                               'length': 'sum',
-                               'name': 'first',
-                               'landuse': 'first'
-                           })
-        gdf['geometry'] = gdf['geometry'].apply(
-            lambda x: multi_to_single_linestring(x))
-        gdf['geometry'] = gdf['geometry'].convex_hull
-
+    query = ''.join(['way["highway"]["highway"!~"cycleway|footway|path|',
+                     'pedestrian|steps|corridor|elevator|escalator|proposed|',
+                     'construction|bridleway|abandoned|platform"]',
+                     '["motor_vehicle"!~"no"]["motorcar"!~"no"]',
+                     f'({ymin},{xmin},{ymax},{xmax});(._;>;)'])
+    api = overpass.API()
+    records = api.get(query, verbosity='geom')
+    gdf = gpd.GeoDataFrame.from_features(records)
     if len(gdf) > 0:
-        clip_gdf = gpd.clip(gdf, latlon_bbox)
-
-    if crs:
-        clip_gdf = clip_gdf.to_crs(crs)
-
-    if raster_resolution:
-        width = int(abs(bbox[2] - bbox[0]) // raster_resolution)
-        height = int(abs(bbox[3] - bbox[1]) // raster_resolution)
-        gdf_box = [int(x) for x in gdf.unary_union.bounds]
-        gdf_width = int(abs(gdf_box[2] - gdf_box[0]) // raster_resolution)
-        gdf_height = int(abs(gdf_box[3] - gdf_box[1]) // raster_resolution)
-
-        full_transform = transform.from_bounds(*gdf_box, gdf_width, gdf_height)
-        clip_win = windows.from_bounds(*bbox,
-                                       transform=full_transform,
-                                       width=width,
-                                       height=height)
-        if len(gdf) > 0:
-            full_raster = rasterize(gdf.geometry,
-                                    out_shape=(gdf_height, gdf_width),
-                                    transform=full_transform,
-                                    dtype='uint8')
-            clip_ras = full_raster[
-                clip_win.round_offsets().round_lengths().toslices()]
-        if distance_transform:
-            neg = np.logical_not(clip_ras)
-            raster = edt(neg)
-        else:
-            raster = np.zeros((height, width), dtype='uint8')
-        return raster
+        gdf = gdf.loc[gdf.geometry.type.isin(['LineString', 'MultiLineString'])]
+        # gdf = gpd.clip(gdf, box(*latlon_bbox))
+        gdf = gdf.set_crs(epsg=4326)
+        if crs:
+            gdf = gdf.to_crs(crs)
 
     else:
-        return clip_gdf
+        gdf = gpd.GeoDataFrame(geometry=[Polygon()]).set_crs(epsg=crs)
+
+    return gdf
 
 
 def water_bodies_from_dnr(layer_num,
