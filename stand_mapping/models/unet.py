@@ -96,9 +96,9 @@ class outconv(nn.Module):
 
 
 class UNet(nn.Module):
-    def __init__(self):
+    def __init__(self, in_ch, out_ch):
         super(UNet, self).__init__()
-        self.inc = inconv(1, 64)
+        self.inc = inconv(in_ch, 64)
         self.down1 = down(64, 128)
         self.down2 = down(128, 256)
         self.down3 = down(256, 512)
@@ -107,8 +107,8 @@ class UNet(nn.Module):
         self.up2 = up(512, 128)
         self.up3 = up(256, 64)
         self.up4 = up(128, 64)
-        self.sem_out = outconv(64, 2)
-        self.ins_out = outconv(64, 16)
+        self.sem_out = outconv(64, out_ch)
+        # self.ins_out = outconv(64, 16)
 
     def forward(self, x):
         x1 = self.inc(x)
@@ -121,5 +121,5 @@ class UNet(nn.Module):
         x = self.up3(x, x2)
         x = self.up4(x, x1)
         sem = self.sem_out(x)
-        ins = self.ins_out(x)
-        return sem, ins
+        #ins = self.ins_out(x)
+        return sem#, ins
