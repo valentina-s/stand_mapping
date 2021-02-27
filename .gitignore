@@ -92,3 +92,7 @@ target/
 # AWS configuration
 .aws
 .aws/*
+
+# keyfiles
+*.ppk
+*.pem
