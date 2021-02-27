@@ -100,7 +100,6 @@ class SemanticDataset(Dataset):
         sem = torch.LongTensor(sem)
         # 0 means no cover type assigned, 255 means area wasn't mapped
         nolabel = torch.BoolTensor(sem == 0) + torch.BoolTensor(sem == 255)
-        nodata = torch.BoolTensor(sem == 255)
         target = sem - 1  # change to zero for first semantic label
 
         if self.transform:
@@ -108,9 +107,8 @@ class SemanticDataset(Dataset):
         if self.target_transform:
             target = self.target_transform(target)
             nolabel = self.target_transform(nolabel)
-            nodata = self.target_transform(nodata)
 
-        return input, target, nolabel, nodata
+        return input, target, nolabel
 
     def __len__(self):
         return len(self.df)
@@ -172,7 +170,6 @@ class SemanticBoundaryClassDataset(SemanticDataset):
         sem = torch.LongTensor(sem)
         # 0 means no cover type assigned, 255 means area wasn't mapped
         nolabel = torch.BoolTensor(sem == 0) + torch.BoolTensor(sem == 255)
-        nodata = torch.BoolTensor(sem == 255)
         target = sem - 1  # change to zero for first semantic label
 
         if self.transform:
@@ -182,4 +179,4 @@ class SemanticBoundaryClassDataset(SemanticDataset):
             nolabel = self.target_transform(nolabel)
             nodata = self.target_transform(nodata)
 
-        return input, target, nolabel, nodata
+        return input, target, nolabel
