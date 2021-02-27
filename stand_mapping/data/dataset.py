@@ -98,8 +98,9 @@ class SemanticDataset(Dataset):
             sem = src.read(window=window)
 
         sem = torch.LongTensor(sem)
-        nolabel = torch.BoolTensor(sem == 0)  # 0 means no cover type assigned
-        nodata = torch.BoolTensor(sem == 255)  # 255 means area isn't mapped
+        # 0 means no cover type assigned, 255 means area wasn't mapped
+        nolabel = torch.BoolTensor(sem == 0) + torch.BoolTensor(sem == 255)
+        nodata = torch.BoolTensor(sem == 255)
         target = sem - 1  # change to zero for first semantic label
 
         if self.transform:
@@ -113,3 +114,72 @@ class SemanticDataset(Dataset):
 
     def __len__(self):
         return len(self.df)
+
+
+class SemanticBoundaryClassDataset(SemanticDataset):
+    """In addition to the semantic segmentation classes (land cover types),
+    adds an additional class to target images indicating boundaries between
+    instances, which can be within or between classes (e.g., forest stand
+    boundaries, transitions between land cover types).
+    """
+    def __getitem__(self, index):
+        """Fetch a sample from the dataset.
+
+        Parameters
+        ----------
+        index : int
+          index of the sample in the dataframe to retrieve data for
+
+        Returns
+        -------
+        (input, target, nolabel, nodata) : tuple
+          input image as a FloatTensor; semantic segmentation target as a
+          LongTensor; nolabel as a BoolTensor indicating areas that have been
+          delineated but did not have a cover type assigned; and nodata as a
+          BoolTensor indicating areas that have not been mapped.
+        """
+        window = None
+        inputs = []
+        for layer_type in self.use_layers:
+            if self.use_layers[layer_type]['use']:
+                col = self.use_layers[layer_type]['col']
+                path = os.path.join(self.root, self.df.loc[index, col])
+                with rasterio.open(path) as src:
+                    if window is None:
+                        height, width = src.shape
+                        col_off = \
+                            np.random.randint(0, width - self.raw_chip_size)
+                        row_off = \
+                            np.random.randint(0, height - self.raw_chip_size)
+                        window = windows.Window(col_off, row_off,
+                                                self.raw_chip_size,
+                                                self.raw_chip_size)
+                    img = src.read(window=window)
+                    inputs.append(img)
+
+        input = np.vstack(inputs)
+        input = torch.FloatTensor(input)
+
+        sem_path = os.path.join(self.root, self.df.loc[index, 'SEMANTIC_PATH'])
+        bnd_path = os.path.join(self.root, self.df.loc[index, 'BOUNDARY_PATH'])
+
+        with rasterio.open(sem_path) as src:
+            sem = src.read(window=window)
+        with rasterio.open(bnd_path) as src:
+            bnd = src.read(1, window=window)
+        sem[:, bnd == 1] = 6
+
+        sem = torch.LongTensor(sem)
+        # 0 means no cover type assigned, 255 means area wasn't mapped
+        nolabel = torch.BoolTensor(sem == 0) + torch.BoolTensor(sem == 255)
+        nodata = torch.BoolTensor(sem == 255)
+        target = sem - 1  # change to zero for first semantic label
+
+        if self.transform:
+            input = self.transform(input)
+        if self.target_transform:
+            target = self.target_transform(target)
+            nolabel = self.target_transform(nolabel)
+            nodata = self.target_transform(nodata)
+
+        return input, target, nolabel, nodata
