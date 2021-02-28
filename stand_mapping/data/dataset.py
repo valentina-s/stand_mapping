@@ -100,6 +100,7 @@ class SemanticDataset(Dataset):
         sem = torch.LongTensor(sem)
         # 0 means no cover type assigned, 255 means area wasn't mapped
         nolabel = torch.BoolTensor(sem == 0) + torch.BoolTensor(sem == 255)
+        sem[nolabel] = 255  # set all nodata values to same
         target = sem - 1  # change to zero for first semantic label
 
         if self.transform:
@@ -170,6 +171,7 @@ class SemanticBoundaryClassDataset(SemanticDataset):
         sem = torch.LongTensor(sem)
         # 0 means no cover type assigned, 255 means area wasn't mapped
         nolabel = torch.BoolTensor(sem == 0) + torch.BoolTensor(sem == 255)
+        sem[nolabel] = 255  # set all nodata values to same
         target = sem - 1  # change to zero for first semantic label
 
         if self.transform:
