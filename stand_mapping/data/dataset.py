@@ -175,7 +175,7 @@ class SemanticAndWatershedDataset(SemanticDataset):
         self.layer_types = [col.split('_PATH')[0].lower() for col in
                             self.path_cols]
         self.boundary_class = boundary_class
-        self.clip_watersed = clip_watershed
+        self.clip_watershed = clip_watershed
 
         if use_layers is None:
             self.use_layers = {layer_type: {'use': False, 'col': path_col} for
