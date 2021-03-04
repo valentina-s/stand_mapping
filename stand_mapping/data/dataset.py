@@ -111,9 +111,9 @@ class SemanticDataset(Dataset):
             sem[:, bnd == 1] = 6
         # 0 means no cover type assigned, 255 means area wasn't mapped
         nolabel = torch.BoolTensor(sem == 0) + torch.BoolTensor(sem == 255)
-        sem[nolabel] = 255  # set all nodata values to 255
+        sem[nolabel] = 0  # set all nodata values to 255
 
-        target = sem - 1  # change to zero for first semantic label
+        target = sem
 
         if self.transform:
             input = self.transform(input)
@@ -128,7 +128,7 @@ class SemanticDataset(Dataset):
 
 
 class SemanticAndWatershedDataset(SemanticDataset):
-    def __init__(self, root, dataframe, raw_chip_size,
+    def __init__(self, root, dataframe, raw_chip_size, num_classes=5,
                  transform=None, target_transform=None,
                  use_layers=None, boundary_class=False,
                  clip_watershed=-100):
@@ -176,6 +176,7 @@ class SemanticAndWatershedDataset(SemanticDataset):
                             self.path_cols]
         self.boundary_class = boundary_class
         self.clip_watershed = clip_watershed
+        self.num_classes = num_classes
 
         if use_layers is None:
             self.use_layers = {layer_type: {'use': False, 'col': path_col} for
@@ -247,8 +248,6 @@ class SemanticAndWatershedDataset(SemanticDataset):
         nodata = torch.BoolTensor(sem == 255)
         sem[nolabel] = 255  # set all nodata values to 255
 
-        sem = sem - 1  # change to zero for first semantic label
-
         watershed_path = os.path.join(self.root,
                                       self.df.loc[index, 'WATERSHED_PATH'])
         with rasterio.open(watershed_path) as src:
@@ -266,7 +265,7 @@ class SemanticAndWatershedDataset(SemanticDataset):
             nolabel = self.target_transform(nolabel)
             nodata = self.target_transform(nodata)
 
-        return input, sem, watershed, nolabel, nodata
+        return input, (sem, watershed), (nolabel, nodata)
 
     def __len__(self):
         return len(self.df)
