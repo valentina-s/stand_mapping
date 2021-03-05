@@ -140,6 +140,8 @@ def single_to_multichannel_mask(mask_img, num_classes=None):
     mask_img : array, shape (width, height)
       array with each instance to be detected indicated by unique non-zero
       integer mask.
+    num_classes : int
+      number of classes to include as channels in masks
 
     Returns
     -------
@@ -147,7 +149,7 @@ def single_to_multichannel_mask(mask_img, num_classes=None):
       boolean arrays with mask of each instance indicated as True.
     """
     # filter out background pixels (value of 0)
-    if num_classes is not None:
+    if num_classes is None:
         classes = np.unique(mask_img[mask_img > 0])
     else:
         classes = np.arange(num_classes) + 1
