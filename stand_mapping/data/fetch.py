@@ -7,6 +7,7 @@ import io
 import numpy as np
 import requests
 import warnings
+import json
 from bs4 import BeautifulSoup
 from functools import partial
 from multiprocessing.pool import ThreadPool
@@ -14,7 +15,7 @@ from multiprocessing.pool import ThreadPool
 from pyproj.crs.crs import CRS
 from rasterio import transform, windows
 from rasterio.features import rasterize
-from shapely.geometry import box
+from shapely.geometry import box, Polygon
 import geopandas as gpd
 import overpass
 
@@ -24,6 +25,8 @@ from scipy.ndimage.morphology import distance_transform_edt as edt
 from skimage.morphology import disk
 from skimage.transform import resize
 from skimage.util import apply_parallel
+from matplotlib import pyplot as plt
+from PIL import Image
 
 
 def landcover_from_ai4earth(bbox,
@@ -451,7 +454,8 @@ def roads_from_osm(bbox, crs=None):
     records = api.get(query, verbosity='geom')
     gdf = gpd.GeoDataFrame.from_features(records)
     if len(gdf) > 0:
-        gdf = gdf.loc[gdf.geometry.type.isin(['LineString', 'MultiLineString'])]
+        gdf = gdf.loc[gdf.geometry.type.isin(['LineString',
+                                              'MultiLineString'])]
         # gdf = gpd.clip(gdf, box(*latlon_bbox))
         gdf = gdf.set_crs(epsg=4326)
         if crs:
@@ -467,7 +471,8 @@ def water_bodies_from_dnr(layer_num,
                           bbox,
                           inSR=4326,
                           raster_resolution=None,
-                          distance_transform=False):
+                          distance_transform=False,
+                          *args, **kwargs):
     """
     Returns hydrographic features from the Washington DNR web service.
 
@@ -1205,7 +1210,7 @@ def tileindex_from_noaa_digital_coast(url, crs=None):
       tile index for the dataset
     """
     links = scrape_hyperlinks(url)
-    zip_url = [url + l for l in links if 'tileindex' in l]
+    zip_url = [url + lnk for lnk in links if 'tileindex' in lnk]
 
     if len(zip_url) > 1:
         warnings.warn(f'''More than one tileindex found at {url}.
@@ -1308,7 +1313,7 @@ def contour_images_from_tnm(bbox, img_width, img_height, inSR=3857,
     index_contour_symbol = {
       "type": "esriSLS",
       "style": "esriSLSSolid",
-      "color": [32,96,0,255],
+      "color": [32, 96, 0, 255],
       "width": 1.5
       }
     if index_contour_style is not None:
@@ -1317,32 +1322,32 @@ def contour_images_from_tnm(bbox, img_width, img_height, inSR=3857,
     intermediate_contour_symbol = {
       "type": "esriSLS",
       "style": "esriSLSSolid",
-      "color": [32,96,0,255],
+      "color": [32, 96, 0, 255],
       "width": 0.5
       }
     if intermediate_contour_style is not None:
         intermediate_contour_symbol.update(intermediate_contour_style)
 
     label_symbol = {
-      "type":"esriTS",
-      "color":[15,39,3,255],
-      "backgroundColor":None,
-      "outlineColor":None,
-      "verticalAlignment":"baseline",
-      "horizontalAlignment":"left",
-      "rightToLeft":False,
-      "angle":0,
-      "xoffset":0,
-      "yoffset":0,
-      "kerning":True,
-      "haloSize":2,
-      "haloColor":[255,255,255,255],
-      "font":{
-          "family":"Arial",
-          "size":12,
-          "style":"italic",
-          "weight":"normal",
-          "decoration":"none"
+      "type": "esriTS",
+      "color": [15, 39, 3, 255],
+      "backgroundColor": None,
+      "outlineColor": None,
+      "verticalAlignment": "baseline",
+      "horizontalAlignment": "left",
+      "rightToLeft": False,
+      "angle": 0,
+      "xoffset": 0,
+      "yoffset": 0,
+      "kerning": True,
+      "haloSize": 2,
+      "haloColor": [255, 255, 255, 255],
+      "font": {
+          "family": "Arial",
+          "size": 12,
+          "style": "italic",
+          "weight": "normal",
+          "decoration": "none"
           }
       }
     if contour_label_style is not None:
@@ -1353,44 +1358,42 @@ def contour_images_from_tnm(bbox, img_width, img_height, inSR=3857,
                 label_symbol.update(((key, contour_label_style[key]),))
 
     styles = [
-    {"id":25,
-     "source":{"type":"mapLayer", "mapLayerId":25},
-     "drawingInfo":{
-         "renderer":{
-             "type":"simple",
-              "symbol":index_contour_symbol,
-              },
+        {"id": 25,
+         "source": {"type": "mapLayer", "mapLayerId": 25},
+         "drawingInfo": {
+             "renderer": {
+                 "type": "simple",
+                 "symbol": index_contour_symbol,
+                          },
+                         },
          },
-     },
-    {"id":26,
-     "source":{"type":"mapLayer", "mapLayerId":26},
-     "drawingInfo":{
-         "renderer":{
-             "type":"simple",
-             "symbol":intermediate_contour_symbol,
-             },
+        {"id": 26,
+         "source": {"type": "mapLayer", "mapLayerId": 26},
+         "drawingInfo": {
+             "renderer": {
+                 "type": "simple",
+                 "symbol": intermediate_contour_symbol,
+                          },
+                         },
          },
-     },
-     {"id":21,
-      "source":{"type":"mapLayer", "mapLayerId":21},
-      "drawingInfo":{
-          "renderer":{
-              "type":"uniqueValue",
-              "field1":"FCODE",
-               "fieldDelimiter":",",
-               },
-          "labelingInfo":[
-              {
-               "labelPlacement":"esriServerLinePlacementCenterAlong",
-               "labelExpression":"[CONTOURELEVATION]",
-               "useCodedValues":True,
-               "symbol":label_symbol,
-               "minScale":0,
-               "maxScale":0
-               }
-              ]
-          }
-      }
+        {"id": 21,
+         "source": {"type": "mapLayer", "mapLayerId": 21},
+         "drawingInfo": {
+              "renderer": {
+                  "type": "uniqueValue",
+                  "field1": "FCODE",
+                  "fieldDelimiter": ",",
+                           },
+              "labelingInfo": [{
+                   "labelPlacement": "esriServerLinePlacementCenterAlong",
+                   "labelExpression": "[CONTOURELEVATION]",
+                   "useCodedValues": True,
+                   "symbol": label_symbol,
+                   "minScale": 0,
+                   "maxScale": 0
+                                }]
+                          }
+         }
      ]
 
     params = dict(
@@ -1422,6 +1425,7 @@ def contour_images_from_tnm(bbox, img_width, img_height, inSR=3857,
 
     return img
 
+
 def elevation_point_query_tnm(lon, lat, units='Feet', format='json'):
     """Retrieves elevation for a point from The National Map
 
@@ -1442,10 +1446,12 @@ def elevation_point_query_tnm(lon, lat, units='Feet', format='json'):
       elevation of the query point
     """
     BASE_URL = 'https://nationalmap.gov/epqs/pqs.php?'
-    data = {'x': lon, 'y': lat, 'units':units, 'output':format}
-    r = request.post(BASE_URL, data=data)
-    elev = r.json()['USGS_Elevation_Point_Query_Service']['Elevation_Query']['Elevation']
+    data = {'x': lon, 'y': lat, 'units': units, 'output': format}
+    r = requests.post(BASE_URL, data=data)
+    elev = (r.json()['USGS_Elevation_Point_Query_Service']
+            ['Elevation_Query']['Elevation'])
     return elev
+
 
 def contours_from_tnm_dem(bbox, width, height, inSR=3857):
     """Fetches a DEM from The National Map and returns a PIL image with
@@ -1477,15 +1483,16 @@ def contours_from_tnm_dem(bbox, width, height, inSR=3857):
     ax.set_axis_off()
     ax.set_aspect('equal')
     fig.add_axes(ax)
-    COLOR = (32/255.,96/255.,0.,255/255.)
+    COLOR = (32/255., 96/255., 0., 255/255.)
 
     min_40, max_40 = np.floor(dem.min()/40)*40, np.ceil(dem.max()/40)*40+40
-    min_200, max_200 = np.floor(dem.min()/200)*200, np.ceil(dem.max()/200)*200+200
+    min_200, max_200 = (np.floor(dem.min()/200)*200,
+                        np.ceil(dem.max()/200)*200+200)
 
-    cont_40 =  ax.contour(dem, levels=np.arange(min_40,max_40,40),
-                          colors=[COLOR],
-                          linewidths=[0.15])
-    cont_200 = ax.contour(dem, levels=np.arange(min_200,max_200,200),
+    cont_40 = ax.contour(dem, levels=np.arange(min_40, max_40, 40),
+                         colors=[COLOR],
+                         linewidths=[0.15])
+    cont_200 = ax.contour(dem, levels=np.arange(min_200, max_200, 200),
                           colors=[COLOR],
                           linewidths=[0.5])
     fmt = ticker.StrMethodFormatter("{x:,.0f} ft")
