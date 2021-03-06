@@ -193,7 +193,7 @@ def masks_iou(gt_masks, pred_masks, nodata=None, num_classes=None):
         if num_classes is not None:
             return np.full((num_classes, num_classes), np.nan)
         else:
-            return np.full((1,1), np.nan)
+            return np.full((1, 1), np.nan)
 
     masks1 = single_to_multichannel_mask(gt_masks, num_classes=num_classes)
     masks2 = single_to_multichannel_mask(pred_masks, num_classes=num_classes)
@@ -254,7 +254,7 @@ def mask_f1_score(gt_masks, pred_masks, nodata=None,
                      nodata=nodata, num_classes=num_classes)
 
     # non-max suppression to calculate average IOU
-    # choosing best-matching predicted mask for each ground-truth class
+    # choosing best-matching predicted mask for each ground-truth object
     iou = ious.max(axis=1).mean()  # predicted class, max overlap
 
     above_thresh = ious > iou_thresh
@@ -269,8 +269,8 @@ def mask_f1_score(gt_masks, pred_masks, nodata=None,
         recall = 0
     else:
         recall = above_thresh.max(
-            axis=0).sum() / (above_thresh.shape[0] -
-                             above_thresh.max(axis=0)).sum()  # tp / (tp + fn)
+            axis=0).sum() / (above_thresh.shape[0]
+                             - above_thresh.max(axis=0)).sum()  # tp / (tp + fn)
 
     if precision + recall == 0:
         f1 = 0
