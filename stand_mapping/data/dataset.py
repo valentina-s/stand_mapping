@@ -9,7 +9,8 @@ from torch.utils.data import Dataset
 class SemanticDataset(Dataset):
     def __init__(self, root, dataframe, raw_chip_size,
                  transform=None, target_transform=None,
-                 use_layers=None, boundary_class=False):
+                 use_layers=None, random_seed=None,
+                 boundary_class=False):
         """Initialize a SemanticDataset for semantic segmentation.
 
         Parameters
@@ -33,10 +34,12 @@ class SemanticDataset(Dataset):
           if True, an additional semantic class will be added to the semantic
           target which indicates whether or not a pixel is a boundary between
           land cover instances.
+        random_seed : int, optional
+          ...
         """
         super().__init__()
         self.root = root
-        self.df = dataframe
+        self.df = dataframe.copy()
         self.raw_chip_size = raw_chip_size
         self.transform = transform
         self.target_transform = target_transform
@@ -44,6 +47,7 @@ class SemanticDataset(Dataset):
         self.layer_types = [col.split('_PATH')[0].lower() for col in
                             self.path_cols]
         self.boundary_class = boundary_class
+        self.seed = random_seed
 
         if use_layers is None:
             self.use_layers = {layer_type: {'use': False, 'col': path_col} for
@@ -88,6 +92,7 @@ class SemanticDataset(Dataset):
                 with rasterio.open(path) as src:
                     if window is None:
                         height, width = src.shape
+                        np.random.seed(self.seed)
                         col_off = \
                             np.random.randint(0, width - self.raw_chip_size)
                         row_off = \
@@ -134,8 +139,8 @@ class SemanticDataset(Dataset):
 class SemanticAndWatershedDataset(SemanticDataset):
     def __init__(self, root, dataframe, raw_chip_size,
                  transform=None, target_transform=None,
-                 use_layers=None, boundary_class=False,
-                 clip_watershed=-100):
+                 use_layers=None, random_seed=None,
+                 boundary_class=False, clip_watershed=-100):
         """Initialize a Dataset for semantic segmentation and watershed energy
         modeling. Semantic layer includes land cover types plus an optional
         cover type for boundaries between land cover objects/instances. The
@@ -172,7 +177,8 @@ class SemanticAndWatershedDataset(SemanticDataset):
         super().__init__(
             root, dataframe, raw_chip_size,
             transform=transform, target_transform=target_transform,
-            use_layers=use_layers, boundary_class=boundary_class)
+            use_layers=use_layers, random_seed=random_seed,
+            boundary_class=boundary_class)
 
         self.clip_watershed = clip_watershed
 
@@ -204,6 +210,9 @@ class SemanticAndWatershedDataset(SemanticDataset):
                 with rasterio.open(path) as src:
                     if window is None:
                         height, width = src.shape
+                        # choose a random window from the first layer
+                        # that will stay fixed for all subsequent layers
+                        np.random.seed(self.seed)
                         col_off = \
                             np.random.randint(0, width - self.raw_chip_size)
                         row_off = \
@@ -259,8 +268,8 @@ class SemanticAndWatershedDataset(SemanticDataset):
 class SemanticAndInstanceDataset(SemanticDataset):
     def __init__(self, root, dataframe, raw_chip_size,
                  transform=None, target_transform=None,
-                 use_layers=None, boundary_class=False,
-                 thing_classes=None):
+                 use_layers=None, random_seed=None,
+                 boundary_class=False, thing_classes=None):
         """Initialize a Dataset for semantic segmentation and watershed energy
         modeling. Semantic layer includes land cover types plus an optional
         cover type for boundaries between land cover objects/instances. The
@@ -300,7 +309,8 @@ class SemanticAndInstanceDataset(SemanticDataset):
         super().__init__(
             root, dataframe, raw_chip_size,
             transform=transform, target_transform=target_transform,
-            use_layers=use_layers, boundary_class=boundary_class)
+            use_layers=use_layers, random_seed=random_seed,
+            boundary_class=boundary_class)
 
         self.thing_classes = {
                 'water': False,
@@ -341,6 +351,7 @@ class SemanticAndInstanceDataset(SemanticDataset):
                 with rasterio.open(path) as src:
                     if window is None:
                         height, width = src.shape
+                        np.random.seed(self.seed)
                         col_off = \
                             np.random.randint(0, width - self.raw_chip_size)
                         row_off = \
